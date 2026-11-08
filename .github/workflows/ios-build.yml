@@ -131,19 +131,29 @@ jobs:
           nugetforunity restore .
 
       ###########################
+      #     Install License     #
+      ###########################
+      - name: "[Pre-install] Install Unity License (.ulf)"
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+        run: |
+          UNITY_LICENSE_DIR="/Library/Application Support/Unity"
+          sudo mkdir -p "$UNITY_LICENSE_DIR"
+          sudo chmod -R 777 "$UNITY_LICENSE_DIR"
+          printf "%s" "$UNITY_LICENSE" > "$UNITY_LICENSE_DIR/Unity_lic.ulf"
+          ls -la "$UNITY_LICENSE_DIR/Unity_lic.ulf"
+
+      ###########################
       #    Build Unity -> iOS   #
       ###########################
       - name: "[Build] Export Unity iOS Xcode Project"
         uses: game-ci/unity-builder@v4
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
-          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
           buildName: YARG
           targetPlatform: iOS
           allowDirtyBuild: true
           versioning: None
+          skipActivation: true
           cacheUnityInstallationOnMac: true
 
       ###########################
@@ -153,12 +163,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          XCODE_PROJ="build/iOS/Unity-iPhone.xcodeproj"
-          if [ ! -d "$XCODE_PROJ" ]; then
-            echo "Error: Xcode project not found at $XCODE_PROJ"
+          XCODE_PROJ=$(find build -name "Unity-iPhone.xcodeproj" -maxdepth 4 | head -n 1)
+          if [ -z "$XCODE_PROJ" ] || [ ! -d "$XCODE_PROJ" ]; then
+            echo "Error: Xcode project not found under build/"
+            ls -laR build || true
             exit 1
           fi
 
+          echo "Building Xcode project at: $XCODE_PROJ"
           xcodebuild \
             -project "$XCODE_PROJ" \
             -scheme Unity-iPhone \
