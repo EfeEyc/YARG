@@ -22,6 +22,37 @@ namespace YARG.Audio.BASS
             }
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        public struct NativeFileProcedures
+        {
+            public IntPtr Close;
+            public IntPtr Length;
+            public IntPtr Read;
+            public IntPtr Seek;
+        }
+
+#if !UNITY_EDITOR && UNITY_IOS
+        private const string BASS_LIB = "@rpath/bass.framework/bass";
+#else
+        private const string BASS_LIB = "bass";
+#endif
+
+        [DllImport(BASS_LIB, EntryPoint = "BASS_StreamCreateFileUser")]
+        private static extern int BASS_StreamCreateFileUserNative(int system, BassFlags flags, in NativeFileProcedures procs, IntPtr user);
+
+        private static readonly FileCloseProcedure s_CloseProc = OnClose;
+        private static readonly FileLengthProcedure s_LengthProc = OnLength;
+        private static readonly FileReadProcedure s_ReadProc = OnRead;
+        private static readonly FileSeekProcedure s_SeekProc = OnSeek;
+
+        private static readonly NativeFileProcedures s_NativeProcedures = new()
+        {
+            Close = Marshal.GetFunctionPointerForDelegate(s_CloseProc),
+            Length = Marshal.GetFunctionPointerForDelegate(s_LengthProc),
+            Read = Marshal.GetFunctionPointerForDelegate(s_ReadProc),
+            Seek = Marshal.GetFunctionPointerForDelegate(s_SeekProc),
+        };
+
         public static readonly FileProcedures Procedures = new()
         {
             Close = OnClose,
@@ -29,6 +60,17 @@ namespace YARG.Audio.BASS
             Read = OnRead,
             Seek = OnSeek,
         };
+
+        public static int CreateUserStream(StreamSystem system, BassFlags flags, Stream stream)
+        {
+            IntPtr userContext = CreateUserContext(stream);
+            int streamHandle = BASS_StreamCreateFileUserNative((int) system, flags, in s_NativeProcedures, userContext);
+            if (streamHandle == 0)
+            {
+                FreeUserContext(userContext);
+            }
+            return streamHandle;
+        }
 
         public static IntPtr CreateUserContext(Stream stream)
         {

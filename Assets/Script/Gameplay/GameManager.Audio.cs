@@ -113,7 +113,7 @@ namespace YARG.Gameplay
             {
                 YargLogger.LogException(ex, "Failed to load song audio!");
                 _loadState = LoadFailureState.Error;
-                _loadFailureMessage = $"Failed to load audio ({ex.GetType().Name})!";
+                _loadFailureMessage = $"Failed to load audio ({ex.GetType().Name}: {ex.Message})!";
             }
         }
 

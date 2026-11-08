@@ -37,21 +37,33 @@ namespace Editor.Build
             root.SetBoolean("LSSupportsOpeningDocumentsInPlace", true);
             root.SetBoolean("UISupportsDocumentBrowser", false);
 
-            // Force full screen edge-to-edge rendering without windowed letterboxing
-            root.SetBoolean("UIRequiresFullScreen", true);
+            // Allow dynamic edge-to-edge window resizing without legacy 16:9 letterbox container constraints
+            root.SetBoolean("UIRequiresFullScreen", false);
             root.SetBoolean("UIStatusBarHidden", true);
             root.SetBoolean("UIViewControllerBasedStatusBarAppearance", false);
 
             // Enable 120Hz ProMotion frame rates on iOS
             root.SetBoolean("CADisableMinimumFrameDurationOnPhone", true);
 
+            // Configure UIApplicationSceneManifest for modern iOS 27+ dynamic edge-to-edge windowing
+            var sceneManifest = root.CreateDict("UIApplicationSceneManifest");
+            sceneManifest.SetBoolean("UIApplicationSupportsMultipleScenes", false);
+            var sceneConfigs = sceneManifest.CreateDict("UISceneConfigurations");
+            var appRole = sceneConfigs.CreateArray("UIWindowSceneSessionRoleApplication");
+            var defaultConf = appRole.AddDict();
+            defaultConf.SetString("UISceneConfigurationName", "Default Configuration");
+            defaultConf.SetString("UISceneDelegateClassName", "YargSceneDelegate");
+
             // Use the unrestricted launch screen for all device classes so UIKit never letterboxes to 16:9
             root.SetString("UILaunchStoryboardName", "LaunchScreen-iPad");
             root.SetString("UILaunchStoryboardName~ipad", "LaunchScreen-iPad");
             root.SetString("UILaunchStoryboardName~iphone", "LaunchScreen-iPad");
-            if (!root.values.ContainsKey("UILaunchScreen"))
+            root.SetString("UILaunchStoryboardName~ipod", "LaunchScreen-iPad");
+
+            // Remove any empty UILaunchScreen dictionary so it does not conflict with UILaunchStoryboardName
+            if (root.values.ContainsKey("UILaunchScreen"))
             {
-                root.CreateDict("UILaunchScreen");
+                root.values.Remove("UILaunchScreen");
             }
 
             foreach (string file in Directory.GetFiles(pathToBuiltProject, "LaunchScreen-iPad.storyboard", SearchOption.AllDirectories))

@@ -695,11 +695,48 @@ namespace YARG.Audio.BASS
             // https://www.un4seen.com/forum/?topic=20148.msg140872#msg140872
             const BassFlags streamFlags = BassFlags.Prescan | BassFlags.Decode | BassFlags.AsyncFile | (BassFlags) 64;
 
-            IntPtr userContext = BassStreamProcedures.CreateUserContext(stream);
-            streamHandle = Bass.CreateStream(StreamSystem.NoBuffer, streamFlags, BassStreamProcedures.Procedures, userContext);
+            // 1. Direct native file loading for disk streams (fastest, zero managed callback overhead)
+            if (stream is FileStream fileStream && !string.IsNullOrEmpty(fileStream.Name) && File.Exists(fileStream.Name))
+            {
+                try
+                {
+                    streamHandle = Bass.CreateStream(fileStream.Name, 0, 0, streamFlags);
+                    if (streamHandle != 0)
+                    {
+                        return true;
+                    }
+                    YargLogger.LogFormatWarning("Native file stream creation failed for '{0}': {1}, falling back",
+                        fileStream.Name, Bass.LastError);
+                }
+                catch (Exception ex)
+                {
+                    YargLogger.LogException(ex, "Exception creating stream directly from file path, falling back");
+                }
+            }
+
+            // 2. Direct native memory buffer loading for memory streams (normalizer cloned streams)
+            if (stream is MemoryStream memStream)
+            {
+                try
+                {
+                    byte[] bytes = memStream.ToArray();
+                    streamHandle = Bass.CreateStream(bytes, 0, bytes.Length, streamFlags);
+                    if (streamHandle != 0)
+                    {
+                        return true;
+                    }
+                    YargLogger.LogFormatWarning("Native memory stream creation failed: {0}, falling back", Bass.LastError);
+                }
+                catch (Exception ex)
+                {
+                    YargLogger.LogException(ex, "Exception creating stream directly from memory buffer, falling back");
+                }
+            }
+
+            // 3. Native function-pointer procedure stream for archive streams (SngFileStream, CONFileStream)
+            streamHandle = BassStreamProcedures.CreateUserStream(StreamSystem.NoBuffer, streamFlags, stream);
             if (streamHandle == 0)
             {
-                BassStreamProcedures.FreeUserContext(userContext);
                 YargLogger.LogFormatError("Failed to create source stream: {0}!", Bass.LastError);
                 return false;
             }

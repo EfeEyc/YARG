@@ -332,6 +332,26 @@ jobs:
             fi
           done
 
+          # Stamp main executable and UnityFramework with iOS 27.1 SDK in Mach-O LC_BUILD_VERSION
+          if [ -f "$APP_PATH/YARG" ]; then
+            chmod 755 "$APP_PATH/YARG"
+            xcrun vtool -set-build-version ios 15.0 27.1 -replace -output "$APP_PATH/YARG" "$APP_PATH/YARG" || true
+          fi
+          if [ -f "$APP_PATH/Frameworks/UnityFramework.framework/UnityFramework" ]; then
+            chmod 755 "$APP_PATH/Frameworks/UnityFramework.framework/UnityFramework"
+            xcrun vtool -set-build-version ios 15.0 27.1 -replace \
+              -output "$APP_PATH/Frameworks/UnityFramework.framework/UnityFramework" \
+              "$APP_PATH/Frameworks/UnityFramework.framework/UnityFramework" || true
+          fi
+
+          # Update Info.plist SDK metadata for dynamic edge-to-edge windowing on foldable displays
+          PLIST="$APP_PATH/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :DTPlatformVersion 27.1" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTPlatformVersion string 27.1" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :DTSDKName iphoneos27.1" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKName string iphoneos27.1" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :DTSDKBuild 23F81a" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKBuild string 23F81a" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :UIRequiresFullScreen false" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Delete :UILaunchScreen" "$PLIST" 2>/dev/null || true
+
           # Ad-hoc sign all embedded frameworks and the main app bundle
           find "$APP_PATH/Frameworks" -maxdepth 1 -name "*.framework" | while read -r item; do
             codesign --force --sign - --timestamp=none "$item"
