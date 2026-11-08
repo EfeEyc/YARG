@@ -2,7 +2,7 @@ using UnityEngine.InputSystem;
 using YARG.Core;
 using YARG.Core.Input;
 
-#if UNITY_EDITOR || UNITY_STANDALONE_WIN || UNITY_STANDALONE_OSX || UNITY_WSA || UNITY_IOS
+#if UNITY_EDITOR || UNITY_STANDALONE_WIN || UNITY_STANDALONE_OSX || UNITY_WSA
 using UnityEngine.InputSystem.Switch;
 #endif
 
@@ -130,7 +130,7 @@ namespace YARG.Input
             AddBinding(MenuAction.Start, gamepad.startButton);
             AddBinding(MenuAction.Select, gamepad.selectButton);
 
-#if UNITY_EDITOR || UNITY_STANDALONE_WIN || UNITY_STANDALONE_OSX || UNITY_WSA || UNITY_IOS
+#if UNITY_EDITOR || UNITY_STANDALONE_WIN || UNITY_STANDALONE_OSX || UNITY_WSA
             if (gamepad is SwitchProControllerHID switchPad)
             {
                 // Swap A<->B and X<->Y for Switch controllers
