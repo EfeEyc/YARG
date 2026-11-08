@@ -120,6 +120,14 @@ namespace Editor.Build
 
                 proj.AddBuildProperty(frameworkTarget, "OTHER_LDFLAGS", "-lsqlite3");
                 proj.AddBuildProperty(frameworkTarget, "OTHER_LDFLAGS", "-lz");
+
+                // Ensure desktop dynamic libraries are not linked into the iOS build
+                string stbDylibGuid = proj.FindFileGuidByProjectPath("Libraries/Plugins/STB2CSharp/MacOS/STB2CSharp.dylib");
+                if (!string.IsNullOrEmpty(stbDylibGuid))
+                {
+                    proj.RemoveFileFromBuild(frameworkTarget, stbDylibGuid);
+                    proj.RemoveFile(stbDylibGuid);
+                }
             }
 
             proj.WriteToFile(pbxPath);
