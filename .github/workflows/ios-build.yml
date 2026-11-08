@@ -117,7 +117,14 @@ jobs:
       ###########################
       #    Restore Packages     #
       ###########################
+      - name: "[Pre-install] Setup .NET 9"
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
       - name: "[Pre-install] Restore NuGet Packages"
+        env:
+          DOTNET_ROLL_FORWARD: Major
         run: |
           dotnet tool install --global NuGetForUnity.Cli || true
           export PATH="$PATH:$HOME/.dotnet/tools"
