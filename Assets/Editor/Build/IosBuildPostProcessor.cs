@@ -37,28 +37,31 @@ namespace Editor.Build
             root.SetBoolean("LSSupportsOpeningDocumentsInPlace", true);
             root.SetBoolean("UISupportsDocumentBrowser", false);
 
-            // Disable legacy fixed-size fullscreen requirement so iOS renders natively across full dynamic/foldable screen bounds
-            root.SetBoolean("UIRequiresFullScreen", false);
-            root.SetString("UIRequiresFullScreenIgnoredStartingWithVersion", "26.0");
+            // Force full screen edge-to-edge rendering without windowed letterboxing
+            root.SetBoolean("UIRequiresFullScreen", true);
             root.SetBoolean("UIStatusBarHidden", true);
             root.SetBoolean("UIViewControllerBasedStatusBarAppearance", false);
 
             // Enable 120Hz ProMotion frame rates on iOS
             root.SetBoolean("CADisableMinimumFrameDurationOnPhone", true);
 
-            // Remove legacy phone-specific launch storyboard keys that lock the app into a 16:9 compatibility box
-            // and use modern UILaunchScreen dictionary instead
-            root.values.Remove("UILaunchStoryboardName");
-            root.values.Remove("UILaunchStoryboardName~iphone");
-            root.values.Remove("UILaunchStoryboardName~ipad");
-            root.values.Remove("UILaunchStoryboardName~ipod");
-            root.CreateDict("UILaunchScreen");
-
-            string ipadStoryboard = Path.Combine(pathToBuiltProject, "LaunchScreen-iPad.storyboard");
-            string iphoneStoryboard = Path.Combine(pathToBuiltProject, "LaunchScreen-iPhone.storyboard");
-            if (File.Exists(ipadStoryboard) && File.Exists(iphoneStoryboard))
+            // Use the unrestricted launch screen for all device classes so UIKit never letterboxes to 16:9
+            root.SetString("UILaunchStoryboardName", "LaunchScreen-iPad");
+            root.SetString("UILaunchStoryboardName~ipad", "LaunchScreen-iPad");
+            root.SetString("UILaunchStoryboardName~iphone", "LaunchScreen-iPad");
+            if (!root.values.ContainsKey("UILaunchScreen"))
             {
-                File.Copy(ipadStoryboard, iphoneStoryboard, true);
+                root.CreateDict("UILaunchScreen");
+            }
+
+            foreach (string file in Directory.GetFiles(pathToBuiltProject, "LaunchScreen-iPad.storyboard", SearchOption.AllDirectories))
+            {
+                string dir = Path.GetDirectoryName(file);
+                if (dir != null)
+                {
+                    string iphoneFile = Path.Combine(dir, "LaunchScreen-iPhone.storyboard");
+                    File.Copy(file, iphoneFile, true);
+                }
             }
 
             // Permissions for Vocals microphone and Bluetooth controllers/instruments

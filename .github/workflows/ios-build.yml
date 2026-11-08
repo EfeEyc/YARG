@@ -332,50 +332,6 @@ jobs:
             fi
           done
 
-          # Patch LC_BUILD_VERSION sdk field in-place to 27.1.0 (0x001B0100) ONLY in YARG and UnityFramework
-          # (no vtool, no load-command shifting, and never touching bass*.framework)
-          python3 - "$APP_PATH/YARG" "$APP_PATH/Frameworks/UnityFramework.framework/UnityFramework" << 'EOF'
-          import struct, sys
-
-          SDK_27_1 = 0x001B0100
-          for bin_path in sys.argv[1:]:
-              data = bytearray(open(bin_path, "rb").read())
-              magic = struct.unpack_from("<I", data, 0)[0]
-              if magic != 0xFEEDFACF:
-                  print(f"Skipping {bin_path}: unexpected magic {hex(magic)}")
-                  continue
-              ncmds = struct.unpack_from("<I", data, 16)[0]
-              off = 32
-              for _ in range(ncmds):
-                  cmd, cmdsize = struct.unpack_from("<II", data, off)
-                  if cmd == 0x32: # LC_BUILD_VERSION
-                      old_sdk = struct.unpack_from("<I", data, off + 16)[0]
-                      struct.pack_into("<I", data, off + 16, SDK_27_1)
-                      print(f"Patched LC_BUILD_VERSION sdk in {bin_path} at offset {off + 16}: {hex(old_sdk)} -> {hex(SDK_27_1)}")
-                      break
-                  off += cmdsize
-              open(bin_path, "wb").write(data)
-          EOF
-
-          # Update Info.plist files for native iOS 27.1 full-screen window sizing and remove legacy phone launch storyboard keys
-          for plist in "$APP_PATH/Info.plist" "$APP_PATH/Frameworks/UnityFramework.framework/Info.plist"; do
-            if [ -f "$plist" ]; then
-              /usr/libexec/PlistBuddy -c "Set :DTSDKName iphoneos27.1" "$plist" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKName string iphoneos27.1" "$plist"
-              /usr/libexec/PlistBuddy -c "Set :DTPlatformVersion 27.1" "$plist" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTPlatformVersion string 27.1" "$plist"
-              /usr/libexec/PlistBuddy -c "Set :DTXcode 2710" "$plist" 2>/dev/null || true
-            fi
-          done
-
-          /usr/libexec/PlistBuddy -c "Delete :UILaunchStoryboardName" "$APP_PATH/Info.plist" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Delete :UILaunchStoryboardName~iphone" "$APP_PATH/Info.plist" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Delete :UILaunchStoryboardName~ipad" "$APP_PATH/Info.plist" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Delete :UILaunchStoryboardName~ipod" "$APP_PATH/Info.plist" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :UILaunchScreen dict" "$APP_PATH/Info.plist" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Set :UIRequiresFullScreen false" "$APP_PATH/Info.plist" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :UIRequiresFullScreen bool false" "$APP_PATH/Info.plist"
-
-          plutil -convert binary1 "$APP_PATH/Info.plist"
-          plutil -convert binary1 "$APP_PATH/Frameworks/UnityFramework.framework/Info.plist"
-
           # Ad-hoc sign all embedded frameworks and the main app bundle
           find "$APP_PATH/Frameworks" -maxdepth 1 -name "*.framework" | while read -r item; do
             codesign --force --sign - --timestamp=none "$item"
