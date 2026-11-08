@@ -46,10 +46,19 @@ namespace Editor.Build
             // Enable 120Hz ProMotion frame rates on iOS
             root.SetBoolean("CADisableMinimumFrameDurationOnPhone", true);
 
-            // Ensure modern launch screen dictionary exists so iOS never falls back to 16:9 letterboxed compatibility mode
-            if (!root.values.ContainsKey("UILaunchScreen"))
+            // Remove legacy phone-specific launch storyboard keys that lock the app into a 16:9 compatibility box
+            // and use modern UILaunchScreen dictionary instead
+            root.values.Remove("UILaunchStoryboardName");
+            root.values.Remove("UILaunchStoryboardName~iphone");
+            root.values.Remove("UILaunchStoryboardName~ipad");
+            root.values.Remove("UILaunchStoryboardName~ipod");
+            root.CreateDict("UILaunchScreen");
+
+            string ipadStoryboard = Path.Combine(pathToBuiltProject, "LaunchScreen-iPad.storyboard");
+            string iphoneStoryboard = Path.Combine(pathToBuiltProject, "LaunchScreen-iPhone.storyboard");
+            if (File.Exists(ipadStoryboard) && File.Exists(iphoneStoryboard))
             {
-                root.CreateDict("UILaunchScreen");
+                File.Copy(ipadStoryboard, iphoneStoryboard, true);
             }
 
             // Permissions for Vocals microphone and Bluetooth controllers/instruments
@@ -70,6 +79,7 @@ namespace Editor.Build
             // Allow all orientations for full-screen display versatility
             ConfigureOrientations(root, "UISupportedInterfaceOrientations");
             ConfigureOrientations(root, "UISupportedInterfaceOrientations~ipad");
+            ConfigureOrientations(root, "UISupportedInterfaceOrientations~iphone");
 
             plist.WriteToFile(plistPath);
         }

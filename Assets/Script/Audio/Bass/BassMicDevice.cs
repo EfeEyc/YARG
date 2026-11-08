@@ -1,6 +1,7 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
+using AOT;
 using ManagedBass;
 using ManagedBass.Fx;
 using UnityEngine;
@@ -42,7 +43,7 @@ namespace YARG.Audio.BASS
             }
 
             // Apply gain to the playback
-            int applyGain = Bass.ChannelSetDSP(monitorPlaybackHandle, ApplyGain);
+            int applyGain = Bass.ChannelSetDSP(monitorPlaybackHandle, _applyGainProc);
             if (applyGain == 0)
             {
                 YargLogger.LogFormatError("Failed to add gain to monitor stream: {0}!", Bass.LastError);
@@ -75,6 +76,9 @@ namespace YARG.Audio.BASS
             _applyGain = applyGain;
         }
 
+        private static readonly DSPProcedure _applyGainProc = ApplyGain;
+
+        [MonoPInvokeCallback(typeof(DSPProcedure))]
         private static void ApplyGain(int handle, int channel, IntPtr buffer, int length, IntPtr user)
         {
             BassHelpers.ApplyGain(1.3f, buffer, length);
@@ -107,13 +111,13 @@ namespace YARG.Audio.BASS
         private static readonly int[] _sampleRates = { 48000, 44100, 96000, 16000 };
 
 #nullable enable
-        public static RecordingHandle? CreateRecordingHandle(RecordProcedure procedure)
+        public static RecordingHandle? CreateRecordingHandle(RecordProcedure procedure, IntPtr user)
 #nullable disable
         {
             var devPeriod = Bass.GetConfig(Configuration.DevicePeriod);
             foreach (int sampleRate in _sampleRates)
             {
-                int handle = Bass.RecordStart(sampleRate, 1, BassFlags.Default, devPeriod, procedure, IntPtr.Zero);
+                int handle = Bass.RecordStart(sampleRate, 1, BassFlags.Default, devPeriod, procedure, user);
                 if (handle == 0)
                 {
                     YargLogger.LogFormatTrace("Failed to start clean recording at {0} Hz: {1}!", sampleRate, Bass.LastError);
@@ -181,6 +185,25 @@ namespace YARG.Audio.BASS
     {
         private const float MIC_HIT_INPUT_THRESHOLD = 25f;
 
+        private static readonly RecordProcedure _onRecordData = OnRecordData;
+
+        [MonoPInvokeCallback(typeof(RecordProcedure))]
+        private static bool OnRecordData(int handle, IntPtr buffer, int length, IntPtr user)
+        {
+            if (user == IntPtr.Zero)
+            {
+                return true;
+            }
+
+            var gcHandle = GCHandle.FromIntPtr(user);
+            if (gcHandle.IsAllocated && gcHandle.Target is BassMicDevice device)
+            {
+                return device.ProcessRecordData(handle, buffer, length, user);
+            }
+
+            return true;
+        }
+
 #nullable enable
         internal static BassMicDevice? Create(int deviceId, string name)
 #nullable disable
@@ -193,9 +216,14 @@ namespace YARG.Audio.BASS
             }
 
             var device = new BassMicDevice(deviceId, name);
-            device._recordHandle = RecordingHandle.CreateRecordingHandle(device.ProcessRecordData);
+            device._gcHandle = GCHandle.Alloc(device, GCHandleType.Normal);
+            device._recordHandle = RecordingHandle.CreateRecordingHandle(_onRecordData, GCHandle.ToIntPtr(device._gcHandle));
             if (device._recordHandle == null)
             {
+                if (device._gcHandle.IsAllocated)
+                {
+                    device._gcHandle.Free();
+                }
                 FreeDevice(deviceId);
                 return null;
             }
@@ -206,6 +234,10 @@ namespace YARG.Audio.BASS
             if (monitorPlayback == null)
             {
                 device._recordHandle.Dispose();
+                if (device._gcHandle.IsAllocated)
+                {
+                    device._gcHandle.Free();
+                }
                 FreeDevice(deviceId);
                 return null;
             }
@@ -253,6 +285,7 @@ namespace YARG.Audio.BASS
         private readonly int _deviceId;
 
         private RecordingHandle _recordHandle;
+        private GCHandle _gcHandle;
 
         private int _timeAccumulated;
         private int _processedBufferLength;
@@ -448,8 +481,12 @@ namespace YARG.Audio.BASS
 
         protected override void DisposeUnmanagedResources()
         {
-            _monitorHandle.Dispose();
-            _recordHandle.Dispose();
+            _monitorHandle?.Dispose();
+            _recordHandle?.Dispose();
+            if (_gcHandle.IsAllocated)
+            {
+                _gcHandle.Free();
+            }
             Bass.CurrentRecordingDevice = _deviceId;
             Bass.RecordFree();
         }

@@ -97,7 +97,7 @@ namespace YARG.Gameplay
                 if (_mixer == null)
                 {
                     _loadState = LoadFailureState.Error;
-                    _loadFailureMessage = "Failed to load audio!";
+                    _loadFailureMessage = $"Failed to load audio ({ManagedBass.Bass.LastError})!";
                     return;
                 }
 
@@ -113,7 +113,7 @@ namespace YARG.Gameplay
             {
                 YargLogger.LogException(ex, "Failed to load song audio!");
                 _loadState = LoadFailureState.Error;
-                _loadFailureMessage = "Failed to load audio!";
+                _loadFailureMessage = $"Failed to load audio ({ex.GetType().Name})!";
             }
         }
 

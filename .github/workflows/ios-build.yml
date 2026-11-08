@@ -156,13 +156,72 @@ jobs:
         with:
           dotnet-version: "9.0.x"
 
-      - name: "[Pre-install] Restore NuGet Packages"
+      - name: "[Pre-install] Restore NuGet Packages and Patch ManagedBass iOS P/Invoke Paths"
         env:
           DOTNET_ROLL_FORWARD: Major
         run: |
           dotnet tool install --global NuGetForUnity.Cli || true
           export PATH="$PATH:$HOME/.dotnet/tools"
           nugetforunity restore .
+
+          # Rewrite ManagedBass P/Invoke module references from bare names ("bass", "bass_fx", "bassmix")
+          # to exact iOS framework rpaths ("@rpath/bass.framework/bass", etc.) so IL2CPP PosixLibraryLoader
+          # resolves them directly via dlopen("@rpath/bass.framework/bass", RTLD_LAZY)
+          PATCHER_DIR="${{ runner.temp }}/mb-patcher"
+          rm -rf "$PATCHER_DIR"
+          mkdir -p "$PATCHER_DIR"
+          dotnet new console -o "$PATCHER_DIR"
+          dotnet add "$PATCHER_DIR" package Mono.Cecil --version 0.11.6
+          cat << 'EOF' > "$PATCHER_DIR/Program.cs"
+          using System;
+          using System.Collections.Generic;
+          using System.IO;
+          using Mono.Cecil;
+
+          var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+          {
+              ["bass"] = "@rpath/bass.framework/bass",
+              ["libbass.dylib"] = "@rpath/bass.framework/bass",
+              ["bass_fx"] = "@rpath/bass_fx.framework/bass_fx",
+              ["libbass_fx.dylib"] = "@rpath/bass_fx.framework/bass_fx",
+              ["bassmix"] = "@rpath/bassmix.framework/bassmix",
+              ["libbassmix.dylib"] = "@rpath/bassmix.framework/bassmix",
+              ["bassopus"] = "@rpath/bassopus.framework/bassopus",
+              ["libbassopus.dylib"] = "@rpath/bassopus.framework/bassopus",
+          };
+
+          string packagesRoot = Path.Combine(Directory.GetCurrentDirectory(), "Assets", "Packages");
+          foreach (string dllPath in Directory.GetFiles(packagesRoot, "ManagedBass*.dll", SearchOption.AllDirectories))
+          {
+              byte[] bytes = File.ReadAllBytes(dllPath);
+              using var ms = new MemoryStream(bytes);
+              using var asm = AssemblyDefinition.ReadAssembly(ms);
+              bool modified = false;
+
+              foreach (var mod in asm.Modules)
+              {
+                  foreach (var modRef in mod.ModuleReferences)
+                  {
+                      if (map.TryGetValue(modRef.Name, out string newName))
+                      {
+                          Console.WriteLine($"[{Path.GetFileName(dllPath)}] ModuleRef '{modRef.Name}' -> '{newName}'");
+                          modRef.Name = newName;
+                          modified = true;
+                      }
+                  }
+              }
+
+              if (modified)
+              {
+                  asm.Write(dllPath);
+                  Console.WriteLine($"Saved patched assembly: {dllPath}");
+              }
+          }
+          EOF
+          dotnet run --project "$PATCHER_DIR"
+
+          # Clear cached IL2CPP C++ output so Unity regenerates C++ bindings from patched ManagedBass DLLs and C# scripts
+          rm -rf Library/Il2cppBuildCache Library/Bee
 
       ###########################
       #    Build Unity -> iOS   #
@@ -194,7 +253,45 @@ jobs:
             exit 1
           fi
 
-          echo "Building Xcode project at: $XCODE_PROJ"
+          XCODE_DIR=$(dirname "$XCODE_PROJ")
+          echo "Preparing Xcode project at: $XCODE_PROJ"
+
+          # Ensure any generated IL2CPP C++ files use @rpath/bass*.framework/bass*
+          python3 - "$XCODE_DIR" << 'EOF'
+          import sys
+          from pathlib import Path
+
+          xcode_dir = Path(sys.argv[1])
+          replacements = [
+              ('IL2CPP_NATIVE_STRING("bass")', 'IL2CPP_NATIVE_STRING("@rpath/bass.framework/bass")'),
+              ('IL2CPP_NATIVE_STRING("bass_fx")', 'IL2CPP_NATIVE_STRING("@rpath/bass_fx.framework/bass_fx")'),
+              ('IL2CPP_NATIVE_STRING("bassmix")', 'IL2CPP_NATIVE_STRING("@rpath/bassmix.framework/bassmix")'),
+              ('IL2CPP_NATIVE_STRING("bassopus")', 'IL2CPP_NATIVE_STRING("@rpath/bassopus.framework/bassopus")'),
+          ]
+          patched_files = 0
+          verified_rpath_files = 0
+          for cpp in xcode_dir.rglob("*.cpp"):
+              try:
+                  text = cpp.read_text(encoding="utf-8", errors="ignore")
+              except Exception:
+                  continue
+              if "@rpath/bass" in text:
+                  verified_rpath_files += 1
+              new_text = text
+              for old, new in replacements:
+                  new_text = new_text.replace(old, new)
+              if new_text != text:
+                  cpp.write_text(new_text, encoding="utf-8")
+                  patched_files += 1
+                  print(f"Patched IL2CPP P/Invoke strings in {cpp}")
+          print(f"Verified @rpath/bass in {verified_rpath_files} C++ files (patched {patched_files} additional files).")
+          EOF
+
+          # Ensure LaunchScreen-iPhone.storyboard matches the unbounded iPad storyboard as fallback
+          if [ -f "$XCODE_DIR/LaunchScreen-iPad.storyboard" ] && [ -f "$XCODE_DIR/LaunchScreen-iPhone.storyboard" ]; then
+            cp "$XCODE_DIR/LaunchScreen-iPad.storyboard" "$XCODE_DIR/LaunchScreen-iPhone.storyboard"
+          fi
+
           xcodebuild \
             -project "$XCODE_PROJ" \
             -scheme Unity-iPhone \
@@ -218,7 +315,7 @@ jobs:
           echo "Found built app bundle at: $APP_PATH"
           mkdir -p "$APP_PATH/Frameworks"
 
-          # Embed clean arm64 BASS iOS frameworks (no loose symlink files so on-device re-signing succeeds cleanly)
+          # Embed clean arm64 BASS iOS frameworks (keep original sdk 14.4 Mach-O headers intact!)
           BASS_FW_DIR="${{ runner.temp }}/bass-ios/frameworks"
           for name in bass bass_fx bassmix bassopus; do
             if [ -d "$BASS_FW_DIR/${name}.framework" ]; then
@@ -227,6 +324,50 @@ jobs:
               chmod 755 "$APP_PATH/Frameworks/${name}.framework/${name}"
             fi
           done
+
+          # Patch LC_BUILD_VERSION sdk field in-place to 27.1.0 (0x001B0100) ONLY in YARG and UnityFramework
+          # (no vtool, no load-command shifting, and never touching bass*.framework)
+          python3 - "$APP_PATH/YARG" "$APP_PATH/Frameworks/UnityFramework.framework/UnityFramework" << 'EOF'
+          import struct, sys
+
+          SDK_27_1 = 0x001B0100
+          for bin_path in sys.argv[1:]:
+              data = bytearray(open(bin_path, "rb").read())
+              magic = struct.unpack_from("<I", data, 0)[0]
+              if magic != 0xFEEDFACF:
+                  print(f"Skipping {bin_path}: unexpected magic {hex(magic)}")
+                  continue
+              ncmds = struct.unpack_from("<I", data, 16)[0]
+              off = 32
+              for _ in range(ncmds):
+                  cmd, cmdsize = struct.unpack_from("<II", data, off)
+                  if cmd == 0x32: # LC_BUILD_VERSION
+                      old_sdk = struct.unpack_from("<I", data, off + 16)[0]
+                      struct.pack_into("<I", data, off + 16, SDK_27_1)
+                      print(f"Patched LC_BUILD_VERSION sdk in {bin_path} at offset {off + 16}: {hex(old_sdk)} -> {hex(SDK_27_1)}")
+                      break
+                  off += cmdsize
+              open(bin_path, "wb").write(data)
+          EOF
+
+          # Update Info.plist files for native iOS 27.1 full-screen window sizing and remove legacy phone launch storyboard keys
+          for plist in "$APP_PATH/Info.plist" "$APP_PATH/Frameworks/UnityFramework.framework/Info.plist"; do
+            if [ -f "$plist" ]; then
+              /usr/libexec/PlistBuddy -c "Set :DTSDKName iphoneos27.1" "$plist" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKName string iphoneos27.1" "$plist"
+              /usr/libexec/PlistBuddy -c "Set :DTPlatformVersion 27.1" "$plist" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTPlatformVersion string 27.1" "$plist"
+              /usr/libexec/PlistBuddy -c "Set :DTXcode 2710" "$plist" 2>/dev/null || true
+            fi
+          done
+
+          /usr/libexec/PlistBuddy -c "Delete :UILaunchStoryboardName" "$APP_PATH/Info.plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Delete :UILaunchStoryboardName~iphone" "$APP_PATH/Info.plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Delete :UILaunchStoryboardName~ipad" "$APP_PATH/Info.plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Delete :UILaunchStoryboardName~ipod" "$APP_PATH/Info.plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :UILaunchScreen dict" "$APP_PATH/Info.plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Set :UIRequiresFullScreen false" "$APP_PATH/Info.plist" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :UIRequiresFullScreen bool false" "$APP_PATH/Info.plist"
+
+          plutil -convert binary1 "$APP_PATH/Info.plist"
+          plutil -convert binary1 "$APP_PATH/Frameworks/UnityFramework.framework/Info.plist"
 
           # Ad-hoc sign all embedded frameworks and the main app bundle
           find "$APP_PATH/Frameworks" -maxdepth 1 -name "*.framework" | while read -r item; do

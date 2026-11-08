@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
+using AOT;
 using ManagedBass;
 using ManagedBass.Fx;
 using ManagedBass.Mix;
@@ -42,6 +44,7 @@ namespace YARG.Audio.BASS
         private readonly int            _mixerHandle;
         private readonly List<int>      _sourceHandles = new();
         private readonly int            _tempoStreamHandle;
+        private          GCHandle       _gcHandle;
         private          double         _positionOffset;
         private          bool           _didSetPosition;
         private          int            _songEndHandle;
@@ -55,22 +58,51 @@ namespace YARG.Audio.BASS
         private          int            _gainDspHandle;
         private          float          _gain = 1.0f;
 
+        private static readonly SyncProcedure _onSongEndSync = OnSongEndSync;
+        private static readonly DSPProcedure  _onGainDsp     = OnGainDsp;
+
+        [MonoPInvokeCallback(typeof(SyncProcedure))]
+        private static void OnSongEndSync(int handle, int channel, int data, IntPtr user)
+        {
+            if (user == IntPtr.Zero)
+            {
+                return;
+            }
+
+            var gcHandle = GCHandle.FromIntPtr(user);
+            if (gcHandle.IsAllocated && gcHandle.Target is BassStemMixer mixer)
+            {
+                var end = mixer._songEnd;
+                if (end != null)
+                {
+                    UnityMainThreadCallback.QueueEvent(end.Invoke);
+                }
+            }
+        }
+
+        [MonoPInvokeCallback(typeof(DSPProcedure))]
+        private static void OnGainDsp(int handle, int channel, IntPtr buffer, int length, IntPtr user)
+        {
+            if (user == IntPtr.Zero)
+            {
+                return;
+            }
+
+            var gcHandle = GCHandle.FromIntPtr(user);
+            if (gcHandle.IsAllocated && gcHandle.Target is BassStemMixer mixer)
+            {
+                BassHelpers.ApplyGain(mixer._gain, buffer, length);
+            }
+        }
+
         public override event Action SongEnd
         {
             add
             {
                 if (_songEndHandle == 0)
                 {
-                    void sync(int _, int __, int ___, IntPtr _____)
-                    {
-                        // Prevent potential race conditions by caching the value as a local
-                        var end = _songEnd;
-                        if (end != null)
-                        {
-                            UnityMainThreadCallback.QueueEvent(end.Invoke);
-                        }
-                    }
-                    _songEndHandle = BassMix.ChannelSetSync(_longestHandle, SyncFlags.End, 0, sync);
+                    IntPtr userPtr = _gcHandle.IsAllocated ? GCHandle.ToIntPtr(_gcHandle) : IntPtr.Zero;
+                    _songEndHandle = BassMix.ChannelSetSync(_longestHandle, SyncFlags.End, 0, _onSongEndSync, userPtr);
                 }
 
                 _songEnd += value;
@@ -87,6 +119,8 @@ namespace YARG.Audio.BASS
             : base(name, manager, clampStemVolume)
 #nullable disable
         {
+            _gcHandle = GCHandle.Alloc(this, GCHandleType.Normal);
+
             _tempoStreamHandle = BassFx.TempoCreate(handle, BassFlags.SampleOverrideLowestVolume);
             if (_tempoStreamHandle == 0)
             {
@@ -112,10 +146,8 @@ namespace YARG.Audio.BASS
 
         private void AddGainDSP()
         {
-            _gainDspHandle = Bass.ChannelSetDSP(_mixerHandle, (handle, channel, buffer, length, user) =>
-            {
-                BassHelpers.ApplyGain(_gain, buffer, length);
-            });
+            IntPtr userPtr = _gcHandle.IsAllocated ? GCHandle.ToIntPtr(_gcHandle) : IntPtr.Zero;
+            _gainDspHandle = Bass.ChannelSetDSP(_mixerHandle, _onGainDsp, userPtr);
 
             if (_gainDspHandle == 0)
             {
@@ -558,7 +590,7 @@ namespace YARG.Audio.BASS
 
         protected override void DisposeManagedResources()
         {
-            _whammySyncTimer.Stop();
+            _whammySyncTimer?.Stop();
             _whammySyncTimer = null;
             _stemDatas.Clear();
             if (_channels.Count == 0)
@@ -604,6 +636,11 @@ namespace YARG.Audio.BASS
                 {
                     YargLogger.LogFormatError("Failed to free tempo stream: {0}!", Bass.LastError);
                 }
+            }
+
+            if (_gcHandle.IsAllocated)
+            {
+                _gcHandle.Free();
             }
         }
 

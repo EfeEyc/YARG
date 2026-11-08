@@ -240,10 +240,17 @@ namespace YARG.Audio.BASS
             YargLogger.LogFormatInfo("Current BASS Device: {0}", Bass.GetDeviceInfo(Bass.CurrentDevice).Name);
 
             // Load/reload samples
-            LoadSfx();
-            LoadDrumSfx(); // TODO: move drum sfx loading/disposal to song start/end respectively IF there are any drum players
-            LoadVox();
-            LoadMetronome();
+            try
+            {
+                LoadSfx();
+                LoadDrumSfx(); // TODO: move drum sfx loading/disposal to song start/end respectively IF there are any drum players
+                LoadVox();
+                LoadMetronome();
+            }
+            catch (Exception ex)
+            {
+                YargLogger.LogException(ex, "Failed to load one or more SFX sample banks");
+            }
 
             return true;
         }
@@ -432,7 +439,7 @@ namespace YARG.Audio.BASS
                 return CreateOutputDevice(fallbackDeviceIndex, fallbackDeviceName);
             }
 
-            return null;
+            return CreateOutputDevice(-1, "Default");
         }
 
         private void LoadSfx()
@@ -688,9 +695,11 @@ namespace YARG.Audio.BASS
             // https://www.un4seen.com/forum/?topic=20148.msg140872#msg140872
             const BassFlags streamFlags = BassFlags.Prescan | BassFlags.Decode | BassFlags.AsyncFile | (BassFlags) 64;
 
-            streamHandle = Bass.CreateStream(StreamSystem.NoBuffer, streamFlags, new BassStreamProcedures(stream));
+            IntPtr userContext = BassStreamProcedures.CreateUserContext(stream);
+            streamHandle = Bass.CreateStream(StreamSystem.NoBuffer, streamFlags, BassStreamProcedures.Procedures, userContext);
             if (streamHandle == 0)
             {
+                BassStreamProcedures.FreeUserContext(userContext);
                 YargLogger.LogFormatError("Failed to create source stream: {0}!", Bass.LastError);
                 return false;
             }

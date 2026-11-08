@@ -1,4 +1,5 @@
-﻿using System;
+using System;
+using AOT;
 using ManagedBass;
 using UnityEngine;
 using YARG.Core.Audio;
@@ -195,6 +196,18 @@ namespace YARG.Audio.BASS
             }
         }
 
+        private static readonly SyncProcedure _onEndSync = OnEndSync;
+
+        [MonoPInvokeCallback(typeof(SyncProcedure))]
+        private static void OnEndSync(int handle, int channel, int data, IntPtr user)
+        {
+            int index = (int) user;
+            if (index >= 0 && index < AudioHelpers.SfxSamples.Count)
+            {
+                AudioHelpers.SfxSamples[index].IsPlaying = false;
+            }
+        }
+
         protected override void SetEndCallback_Internal()
         {
             if (_syncHandle != 0)
@@ -203,7 +216,7 @@ namespace YARG.Audio.BASS
                 return;
             }
 
-            _syncHandle = Bass.ChannelSetSync(_channel, SyncFlags.End, 0, EndCallback);
+            _syncHandle = Bass.ChannelSetSync(_channel, SyncFlags.End, 0, _onEndSync, (IntPtr) (int) Sample);
             if (_syncHandle == 0)
             {
                 YargLogger.LogFormatError("Failed to set {0} end callback: {1}!", Sample, Bass.LastError);

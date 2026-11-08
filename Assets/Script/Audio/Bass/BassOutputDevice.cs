@@ -15,17 +15,23 @@ namespace YARG.Audio.BASS
         {
             try
             {
-                if (!Bass.Init(deviceId, 44100, DeviceInitFlags.Default | DeviceInitFlags.Latency, IntPtr.Zero))
+                if (!Bass.Init(deviceId, 44100, DeviceInitFlags.Default | DeviceInitFlags.Latency, IntPtr.Zero) &&
+                    Bass.LastError != Errors.Already)
                 {
-                    if (Bass.LastError != Errors.Already)
+                    if (!Bass.Init(deviceId, 44100, DeviceInitFlags.Default, IntPtr.Zero) &&
+                        Bass.LastError != Errors.Already)
                     {
-                        YargLogger.LogFormatError("Failed to initialize BASS device: {0}!", Bass.LastError);
-
-                        return null;
+                        if (deviceId == -1 ||
+                            (!Bass.Init(-1, 44100, DeviceInitFlags.Default, IntPtr.Zero) &&
+                             Bass.LastError != Errors.Already))
+                        {
+                            YargLogger.LogFormatError("Failed to initialize BASS device: {0}!", Bass.LastError);
+                            return null;
+                        }
                     }
                 }
             }
-            catch (BassException e)
+            catch (Exception e)
             {
                 YargLogger.LogException(e);
                 return null;
