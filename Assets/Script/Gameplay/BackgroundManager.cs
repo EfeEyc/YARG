@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
@@ -14,6 +14,7 @@ using YARG.Core.IO;
 using YARG.Core.Song;
 using YARG.Core.Venue;
 using YARG.Helpers.Extensions;
+using YARG.Helpers.UI;
 using YARG.Settings;
 using YARG.Venue;
 using YARG.Venue.Characters;
@@ -195,10 +196,26 @@ namespace YARG.Gameplay
                     break;
                 case BackgroundType.Image:
                     _backgroundImage.texture = result.Image.LoadTexture(false);
-                    _backgroundImage.uvRect = new Rect(0f, 0f, 1f, -1f);
+                    _backgroundImage.uvRect = AdaptiveDisplayManager.GetEnvelopeUvRect(
+                        result.Image.Width, result.Image.Height);
                     _backgroundImage.gameObject.SetActive(true);
+                    AdaptiveDisplayManager.OnDisplayModeChanged += OnDisplayModeChanged;
                     break;
             }
+        }
+
+        private void OnDisplayModeChanged(bool isCompactAspect)
+        {
+            if (_backgroundImage != null && _backgroundImage.texture != null)
+            {
+                _backgroundImage.uvRect = AdaptiveDisplayManager.GetEnvelopeUvRect(
+                    _backgroundImage.texture.width, _backgroundImage.texture.height);
+            }
+        }
+
+        private void OnDestroy()
+        {
+            AdaptiveDisplayManager.OnDisplayModeChanged -= OnDisplayModeChanged;
         }
 
         private async UniTask LoadYarground(BackgroundResult result)
@@ -327,6 +344,12 @@ namespace YARG.Gameplay
                     _videoPlayer.url = VIDEO_PATH;
                     break;
                 }
+            }
+
+            if (_videoPlayer.renderMode != VideoRenderMode.RenderTexture)
+            {
+                // Fill the entire display edge-to-edge without black bars
+                _videoPlayer.aspectRatio = VideoAspectRatio.FitOutside;
             }
 
             _videoPlayer.enabled = true;

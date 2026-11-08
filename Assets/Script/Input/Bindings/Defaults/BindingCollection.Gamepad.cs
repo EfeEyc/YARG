@@ -1,8 +1,8 @@
-﻿using UnityEngine.InputSystem;
+using UnityEngine.InputSystem;
 using YARG.Core;
 using YARG.Core.Input;
 
-#if UNITY_EDITOR || UNITY_STANDALONE_WIN || UNITY_STANDALONE_OSX || UNITY_WSA
+#if UNITY_EDITOR || UNITY_STANDALONE_WIN || UNITY_STANDALONE_OSX || UNITY_WSA || UNITY_IOS
 using UnityEngine.InputSystem.Switch;
 #endif
 
@@ -63,10 +63,6 @@ namespace YARG.Input
                 GameMode.FourLaneDrums => SetDefaultFourLaneBindings_Gamepad(gamepad),
                 GameMode.FiveLaneDrums => SetDefaultFiveLaneBindings_Gamepad(gamepad),
 
-                // These ain't happening lol
-                // GameMode.ProGuitar => SetDefaultProGuitarBindings_Gamepad(gamepad),
-                // GameMode.ProKeys => SetDefaultProKeysBindings_Gamepad(gamepad),
-
                 GameMode.Vocals => SetDefaultVocalsBindings_Gamepad(gamepad),
 
                 _ => false
@@ -99,7 +95,6 @@ namespace YARG.Input
             if (Mode != GameMode.SixFretGuitar)
                 return false;
 
-            // Not sure what to do here, for now just leave it up to the user
             return true;
         }
 
@@ -108,7 +103,6 @@ namespace YARG.Input
             if (Mode != GameMode.FourLaneDrums)
                 return false;
 
-            // Not sure what to do here, for now just leave it up to the user
             return true;
         }
 
@@ -117,7 +111,6 @@ namespace YARG.Input
             if (Mode != GameMode.FiveLaneDrums)
                 return false;
 
-            // Not sure what to do here, for now just leave it up to the user
             return true;
         }
 
@@ -137,7 +130,7 @@ namespace YARG.Input
             AddBinding(MenuAction.Start, gamepad.startButton);
             AddBinding(MenuAction.Select, gamepad.selectButton);
 
-#if UNITY_EDITOR || UNITY_STANDALONE_WIN || UNITY_STANDALONE_OSX || UNITY_WSA
+#if UNITY_EDITOR || UNITY_STANDALONE_WIN || UNITY_STANDALONE_OSX || UNITY_WSA || UNITY_IOS
             if (gamepad is SwitchProControllerHID switchPad)
             {
                 // Swap A<->B and X<->Y for Switch controllers
@@ -208,8 +201,6 @@ namespace YARG.Input
             AddBinding(GuitarAction.StrumDown, gamepad.dpad.down);
 
             AddBinding(GuitarAction.StarPower, gamepad.selectButton);
-            // CRKD mode 1 doesn't have a dedicated tilt axis
-            // AddBinding(GuitarAction.StarPower, gamepad.rightStick.y, _tiltSettings);
 
             AddBinding(GuitarAction.Whammy, gamepad.leftTrigger);
 
@@ -231,8 +222,6 @@ namespace YARG.Input
             AddBinding(GuitarAction.StrumDown, gamepad.dpad.down);
 
             AddBinding(GuitarAction.StarPower, gamepad.dpad.left);
-            // CRKD mode 1 doesn't have a dedicated tilt axis
-            // AddBinding(GuitarAction.StarPower, gamepad.rightStick.y, _tiltSettings);
 
             AddBinding(GuitarAction.Whammy, gamepad.leftTrigger);
 

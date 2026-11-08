@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -214,6 +214,7 @@ namespace YARG.Menu.Credits
 
         public static void DownloadCredits()
         {
+            Directory.CreateDirectory(Application.streamingAssetsPath);
             var creditsPath = Path.Combine(Application.streamingAssetsPath, "Credits.json");
 
             if (File.Exists(creditsPath))

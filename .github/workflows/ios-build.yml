@@ -1,0 +1,205 @@
+name: Builds - iOS (.ipa)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag for the .ipa artifact"
+        required: false
+        default: "0.13-ios"
+        type: string
+  push:
+    branches:
+      - ios-port
+
+jobs:
+  iosBuilder:
+    name: iOS Build (${{ inputs.version || '0.13-ios' }})
+    runs-on: macos-latest
+
+    steps:
+      ###########################
+      #         Checkout        #
+      ###########################
+      - name: "[Pre-install] Checkout repository and submodules"
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          submodules: recursive
+
+      - name: "[Pre-install] Ensure YARG.Core iOS P/Invoke bindings"
+        run: |
+          python3 - << 'EOF'
+          from pathlib import Path
+          p = Path("YARG.Core/YARG.Core/IO/Images/YARGImage.cs")
+          text = p.read_text(encoding="utf-8")
+          if "UNITY_IOS" not in text:
+              target = '[DllImport("STB2CSharp", EntryPoint = "load_image_from_memory")]'
+              replacement = """#if UNITY_IOS && !UNITY_EDITOR
+                  private const string StbDllName = "__Internal";
+          #else
+                  private const string StbDllName = "STB2CSharp";
+          #endif
+
+                  [DllImport(StbDllName, EntryPoint = "load_image_from_memory")]"""
+              text = text.replace(target, replacement, 1)
+              text = text.replace('[DllImport("STB2CSharp", EntryPoint = "free_image")]', '[DllImport(StbDllName, EntryPoint = "free_image")]', 1)
+              p.write_text(text, encoding="utf-8")
+              print("Patched YARGImage.cs for iOS static linking (__Internal).")
+          EOF
+
+      ###########################
+      #          Cache          #
+      ###########################
+      - name: "[Pre-install] Restore Unity Library cache"
+        uses: actions/cache@v4
+        with:
+          path: Library
+          key: YARG-Library-iOS-${{ hashFiles('Packages/packages-lock.json', 'Assets/packages.config') }}
+          restore-keys: |
+            YARG-Library-iOS-
+            YARG-Library-
+
+      ###########################
+      #     Install Blender     #
+      ###########################
+      - name: "[Pre-install] Cache Blender (3.4.1)"
+        id: blender
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/BlenderInstall
+          key: blender-3.4.1
+          restore-keys: blender-
+
+      - if: ${{ steps.blender.outputs.cache-hit != 'true' }}
+        name: "[Pre-install] Download Blender (3.4.1)"
+        continue-on-error: true
+        run: |
+          mkdir -p "${{ runner.temp }}/BlenderInstall"
+          curl -L -o "${{ runner.temp }}/BlenderInstall/blender.dmg" https://download.blender.org/release/Blender3.4/blender-3.4.1-macos-arm64.dmg
+
+      - name: "[Pre-install] Install Blender (3.4.1)"
+        continue-on-error: true
+        run: |
+          hdiutil attach "${{ runner.temp }}/BlenderInstall/blender.dmg"
+          cp -R /Volumes/Blender/Blender.app /Applications
+          hdiutil unmount /Volumes/Blender
+
+      ###########################
+      #    Download BASS iOS    #
+      ###########################
+      - name: "[Pre-install] Download Un4seen BASS iOS XCFrameworks"
+        run: |
+          BASS_DIR="${{ runner.temp }}/bass-ios"
+          mkdir -p "$BASS_DIR/frameworks"
+          cd "$BASS_DIR"
+
+          curl -fL -A "Mozilla/5.0" -o bass24-ios.zip "https://www.un4seen.com/files/bass24-ios.zip"
+          curl -fL -A "Mozilla/5.0" -o bass_fx24-ios.zip "https://www.un4seen.com/files/z/0/bass_fx24-ios.zip"
+          curl -fL -A "Mozilla/5.0" -o bassmix24-ios.zip "https://www.un4seen.com/files/bassmix24-ios.zip"
+          curl -fL -A "Mozilla/5.0" -o bassopus24-ios.zip "https://www.un4seen.com/files/bassopus24-ios.zip"
+
+          for zip in bass24-ios.zip bass_fx24-ios.zip bassmix24-ios.zip bassopus24-ios.zip; do
+            unzip -q -o "$zip" -d extracted
+          done
+
+          # Extract the physical iOS device (arm64) framework slices (excluding simulator slices)
+          for fw in bass.framework bass_fx.framework bassmix.framework bassopus.framework; do
+            SLICE=$(find extracted -type d -path "*ios-arm64*/$fw" ! -path "*simulator*" | head -n 1)
+            if [ -n "$SLICE" ]; then
+              cp -R "$SLICE" "$BASS_DIR/frameworks/$fw"
+              echo "Prepared $fw from $SLICE"
+            else
+              echo "Warning: Could not locate device slice for $fw"
+            fi
+          done
+
+      ###########################
+      #    Restore Packages     #
+      ###########################
+      - name: "[Pre-install] Restore NuGet Packages"
+        run: |
+          dotnet tool install --global NuGetForUnity.Cli || true
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          nugetforunity restore .
+
+      ###########################
+      #    Build Unity -> iOS   #
+      ###########################
+      - name: "[Build] Export Unity iOS Xcode Project"
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          buildName: YARG
+          targetPlatform: iOS
+          cacheUnityInstallationOnMac: true
+
+      ###########################
+      #  Compile & Package IPA  #
+      ###########################
+      - name: "[Post-build] Compile Xcode Project and Package Unsigned .ipa"
+        run: |
+          set -euo pipefail
+
+          XCODE_PROJ="build/iOS/Unity-iPhone.xcodeproj"
+          if [ ! -d "$XCODE_PROJ" ]; then
+            echo "Error: Xcode project not found at $XCODE_PROJ"
+            exit 1
+          fi
+
+          xcodebuild \
+            -project "$XCODE_PROJ" \
+            -scheme Unity-iPhone \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build/DerivedData \
+            ARCHS="arm64" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            build
+
+          APP_PATH=$(find build/DerivedData/Build/Products/Release-iphoneos -name "*.app" -maxdepth 1 | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: Compiled .app bundle not found!"
+            exit 1
+          fi
+
+          echo "Found built app bundle at: $APP_PATH"
+          mkdir -p "$APP_PATH/Frameworks"
+
+          # Embed BASS iOS frameworks and create dylib symlinks for P/Invoke + PluginLoad compatibility
+          BASS_FW_DIR="${{ runner.temp }}/bass-ios/frameworks"
+          for name in bass bass_fx bassmix bassopus; do
+            if [ -d "$BASS_FW_DIR/${name}.framework" ]; then
+              cp -R "$BASS_FW_DIR/${name}.framework" "$APP_PATH/Frameworks/"
+              ln -sf "${name}.framework/${name}" "$APP_PATH/Frameworks/lib${name}.dylib"
+              ln -sf "${name}.framework/${name}" "$APP_PATH/Frameworks/${name}"
+              codesign --force --sign - --timestamp=none "$APP_PATH/Frameworks/${name}.framework"
+            fi
+          done
+
+          # Ad-hoc sign all embedded frameworks and the main app bundle for AltStore / SideStore / TrollStore / Feather
+          find "$APP_PATH/Frameworks" -name "*.framework" -o -name "*.dylib" | while read -r item; do
+            codesign --force --sign - --timestamp=none "$item" || true
+          done
+          codesign --force --sign - --timestamp=none "$APP_PATH"
+
+          # Package into .ipa
+          rm -rf build/ipa
+          mkdir -p build/ipa/Payload
+          cp -R "$APP_PATH" build/ipa/Payload/YARG.app
+          cd build/ipa
+          zip -r -9 "${GITHUB_WORKSPACE}/YARG-iOS.ipa" Payload
+
+      - name: "[Post-build] Upload .ipa Artifact"
+        uses: actions/upload-artifact@v4
+        with:
+          name: YARG-iOS-${{ inputs.version || '0.13-ios' }}
+          path: YARG-iOS.ipa
+          if-no-files-found: error

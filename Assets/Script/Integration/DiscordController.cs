@@ -61,6 +61,9 @@ namespace YARG.Integration
 
         public void CreateInstance()
         {
+#if UNITY_IOS && !UNITY_EDITOR
+            return;
+#else
             // Skip if loading screen hasn't finished loading localization (localization is required for rich presence to function normally)
             if (!_initialized)
             {
@@ -106,6 +109,7 @@ namespace YARG.Integration
 
             // Set default activity
             SetDefaultActivity();
+#endif
         }
 
         private void OnGameStateChange(GameStateFetcher.State state)

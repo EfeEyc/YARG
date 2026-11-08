@@ -203,11 +203,17 @@ namespace YARG.Gameplay.Visuals
                 camera.aspect = (float)Screen.width / Screen.height;
             }
 
+            bool isCompactAspect = AdaptiveDisplayManager.IsCompactOrTabletAspect;
+
             //First pass, just scale according to aspect ratio, then recalculate matrices
             for (int i = 0; i < _cameras.Count; i++)
             {
                 //This works best for fake track player, but doesn't matter too much otherwise
                 var aspectScaleWidth = Screen.width / (float)Screen.height / (16f / 9f);
+                if (isCompactAspect && HighwayCount() == 1)
+                {
+                    aspectScaleWidth = Math.Max(aspectScaleWidth, AdaptiveDisplayManager.ADAPTIVE_SINGLE_PLAYER_WIDTH_PERCENT);
+                }
                 _laneScales[i] = _allowTextureRecreation ? aspectScaleWidth : Math.Min(aspectScaleWidth, 1.0f);
             }
             UpdateCameraProjectionMatrices();
@@ -221,7 +227,7 @@ namespace YARG.Gameplay.Visuals
 
                 float targetScreenWidth = HighwayCount() == 1
                     // Special case for single non-vocals highway
-                    ? Math.Min(Screen.width, trackWidth)
+                    ? Math.Min(isCompactAspect ? Screen.width * AdaptiveDisplayManager.ADAPTIVE_SINGLE_PLAYER_WIDTH_PERCENT : Screen.width, trackWidth)
                     // For multiple lanes, cap to a percentage of screen width and the scale factor to ensure padding
                     : Math.Min(Screen.width * MAX_LANE_SCREEN_WIDTH_PERCENT, (float)Screen.width / HighwayCount() * MULTI_LANE_SCALE_FACTOR);
 
@@ -232,10 +238,14 @@ namespace YARG.Gameplay.Visuals
 
                 // Also calculate scale factor needed to fit within 50% of screen height
                 // This single player special case is different because here we care if vocals are present
+                float singlePlayerHeightPercent = isCompactAspect ? AdaptiveDisplayManager.ADAPTIVE_SINGLE_PLAYER_HEIGHT_PERCENT : MAX_LANE_HEIGHT_SP;
+                float multiPlayerHeightPercent = (isCompactAspect && HighwayCount() == 2)
+                    ? AdaptiveDisplayManager.ADAPTIVE_TWO_PLAYER_HEIGHT_PERCENT
+                    : MAX_LANE_SCREEN_HEIGHT_PERCENT;
                 float targetScreenHeight = _gameManager?.TotalPlayers < 2
-                    ? Screen.height * MAX_LANE_HEIGHT_SP
+                    ? Screen.height * singlePlayerHeightPercent
                     // Track height can be taller if there is only one player
-                    : Screen.height * MAX_LANE_SCREEN_HEIGHT_PERCENT;
+                    : Screen.height * multiPlayerHeightPercent;
 
                 //Factor in scale multiplier (from hud scaling)
                 targetScreenHeight = Math.Min(Screen.height, targetScreenHeight * _scaleMultiplier);
@@ -520,7 +530,9 @@ namespace YARG.Gameplay.Visuals
 
             // Divide screen into N equal regions: [-1, 1] => 2.0 width
             float laneWidth = 2.0f / highwayCount; // NDC horizontal span is [-1, 1] → 2.0
-            float centerX = -1.0f + laneWidth * (index + 0.5f);
+            float centerX = (AdaptiveDisplayManager.IsCompactOrTabletAspect && highwayCount == 2)
+                ? (index == 0 ? -AdaptiveDisplayManager.SPLIT_PANEL_CENTER_NDC : AdaptiveDisplayManager.SPLIT_PANEL_CENTER_NDC)
+                : (-1.0f + laneWidth * (index + 0.5f));
             float offsetX = centerX + GetMultiplayerXOffset(index, highwayCount,
                 -1f * SettingsManager.Settings.HighwayTiltMultiplier.Value / highwayCount) + horizontalOffsetNdc;
             float offsetY = -1.0f + highwayScale; // Offset down if scaled vertically

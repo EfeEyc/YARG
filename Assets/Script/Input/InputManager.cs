@@ -254,12 +254,8 @@ namespace YARG.Input
                     currentTime, eventPtr.time, device);
             }
 
-            // TODO: It would be nice to suppress the following for keyboard/mouse when there is no
-            //  profile bound to the keyboard or mouse. Just seems like a waste of cycles to check
-            //  on every input event.
-
-            // For now, ignore keyboard, mouse, and pen entirely
-            if (device is Keyboard or Mouse or Pen)
+            // Ignore keyboard, mouse, pen, touchscreen, and motion sensors for auto-connecting profiles
+            if (device is Keyboard or Mouse or Pen or Touchscreen or Pointer or Sensor)
             {
                 return;
             }
@@ -285,33 +281,6 @@ namespace YARG.Input
                     eventPtr.handled = PlayerContainer.TryConnectProfile(device);
                 }
             }
-
-// Leaving these for posterity
-#if false
-            // This check is handled by the engine
-            // It can still happen on occasion despite the fixes we've made to prevent it
-            if (eventPtr.time < InputUpdateTime)
-                YargLogger.LogFormatError("An input event caused time to go backwards!\nInput update time: {0}, event time: {1}, current time: {2}, device: {3}",
-                    InputUpdateTime, eventPtr.time, currentTime, device);
-
-            // This check happens much too often for it to be of any use
-            if (eventPtr.time < _afterUpdateTime)
-                YargLogger.LogFormatWarning("An input event was missed in the previous update!\nPrevious update time: {0}, event time: {1}, current time: {2}, device: {3}",
-                    _afterUpdateTime, eventPtr.time, currentTime, device);
-
-            // The engine also has this check
-            // I've only seen this happen when:
-            // - starting the game
-            // - re-focusing the window
-            // - transitioning to the score screen
-            if (_previousEventTimes.TryGetValue(device, out double previousTime))
-            {
-                if (eventPtr.time < previousTime)
-                    YargLogger.LogFormatWarning("An input event is out of order!\nPrevious event time: {0}, incoming event time: {1}, current time: {2}, device: {3}",
-                        previousTime, eventPtr.time, currentTime, device);
-            }
-            _previousEventTimes[device] = eventPtr.time;
-#endif
         }
 
         private static void OnFocusChange(bool focused)
@@ -359,16 +328,11 @@ namespace YARG.Input
                     _seenDevices.Remove(device);
                     break;
                 }
-                // case InputDeviceChange.Reconnected: // Fired alongside Added, not needed
                 case InputDeviceChange.Enabled:
                 {
-                    // Devices are enabled when gaining window focus,
-                    // but we don't want to add devices when this happens
                     if (_focusChanged || Application.isFocused != _gameFocused)
                     {
                         _focusChanged = true;
-                        // Keep track of which devices were re-enabled, so any devices that actually get
-                        // disabled can be removed after coming back into focus in OnAfterUpdate
                         _backgroundDisabledDevices.Remove(device);
                         return;
                     }
@@ -376,7 +340,6 @@ namespace YARG.Input
                     YargLogger.LogFormatDebug("Device enabled: {0}", device.displayName);
                     if (_disabledDevices.Remove(device))
                     {
-                        // Toast as a newly-added device, for simplicity to the user
                         ToastManager.ToastMessage($"Device added: {device.displayName}");
                         DeviceAdded?.Invoke(device);
                     }
@@ -384,26 +347,19 @@ namespace YARG.Input
                     _seenDevices.Add(device);
                     break;
                 }
-                // case InputDeviceChange.Disconnected: // Fired alongside Removed, not needed
                 case InputDeviceChange.Disabled:
                 {
-                    // Devices are disabled when losing window focus,
-                    // but we don't want to remove devices when this happens
                     if (_focusChanged || Application.isFocused != _gameFocused)
                     {
                         _focusChanged = true;
-                        // Keep track of disabled devices so any devices that actually get
-                        // disabled can be removed after coming back into focus in OnAfterUpdate
                         _backgroundDisabledDevices.Add(device);
                         return;
                     }
 
                     YargLogger.LogFormatDebug("Device disabled: {0}", device.displayName);
 
-                    // Only toast if the device was disabled *after* its addition
                     if (!_disabledDevices.Contains(device) && _seenDevices.Contains(device))
                     {
-                        // Toast as a removed device, for simplicity to the user
                         ToastManager.ToastMessage($"Device removed: {device.displayName}");
                         DeviceRemoved?.Invoke(device);
                     }

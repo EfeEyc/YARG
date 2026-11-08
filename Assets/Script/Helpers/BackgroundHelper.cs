@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
@@ -13,7 +13,7 @@ namespace YARG.Helpers
         public static async UniTask<AssetBundle> LoadMetalShaders(AssetBundle bundle, GameObject bg, ExportType type)
 #pragma warning restore CS1998 // Async method lacks 'await' operators and will run synchronously
         {
-#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
+#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX || UNITY_IOS
             AssetBundle shaderBundle = null;
             var renderers = bg.GetComponentsInChildren<Renderer>(true);
             var metalShaders = new Dictionary<string, Shader>();
@@ -52,7 +52,7 @@ namespace YARG.Helpers
             }
 
             // Yarground comes with shaders for dx11/dx12/glcore/vulkan
-            // Metal shaders used on OSX come in this separate bundle
+            // Metal shaders used on OSX/iOS come in this separate bundle
             // Update our renderers to use them
 
             foreach (var renderer in renderers)
@@ -76,9 +76,10 @@ namespace YARG.Helpers
             }
 
             return shaderBundle;
-#endif
-            // Fallback if we're not running on OSX
+#else
+            // Fallback if we're not running on OSX/iOS
             return null;
+#endif
         }
 
         public enum ExportType

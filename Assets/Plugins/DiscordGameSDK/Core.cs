@@ -906,8 +906,12 @@ namespace Discord
             internal UInt32 AchievementVersion;
         }
 
+#if UNITY_IOS && !UNITY_EDITOR
+        private static Result DiscordCreate(UInt32 version, ref FFICreateParams createParams, out IntPtr manager) { manager = IntPtr.Zero; return Result.NotRunning; }
+#else
         [DllImport(Constants.DllName, ExactSpelling = true, CallingConvention = CallingConvention.Winapi)]
         private static extern Result DiscordCreate(UInt32 version, ref FFICreateParams createParams, out IntPtr manager);
+#endif
 
         public delegate void SetLogHookHandler(LogLevel level, string message);
 

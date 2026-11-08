@@ -1,7 +1,7 @@
-﻿using System;
+using System;
 using SimpleFileBrowser;
 using YARG.Core.Logging;
-
+using YARG.Menu.Persistent;
 using System.Diagnostics;
 using System.IO;
 using UnityEngine;
@@ -13,6 +13,17 @@ namespace YARG.Helpers
     {
         private static FileBrowser _fileBrowser;
 
+        private static string GetDefaultStartingDir(string startingDir)
+        {
+#if UNITY_IOS && !UNITY_EDITOR
+            if (string.IsNullOrEmpty(startingDir) || !Directory.Exists(startingDir))
+            {
+                return PathHelper.RealPersistentDataPath;
+            }
+#endif
+            return startingDir;
+        }
+
         public static void OpenChooseFolder(string startingDir, Action<string> callback)
         {
             if (_fileBrowser == null)
@@ -21,6 +32,7 @@ namespace YARG.Helpers
             }
 
             _fileBrowser.gameObject.SetActive(true);
+            startingDir = GetDefaultStartingDir(startingDir);
 
             FileBrowser.ShowLoadDialog((files) =>
             {
@@ -50,6 +62,7 @@ namespace YARG.Helpers
             }
 
             _fileBrowser.gameObject.SetActive(true);
+            startingDir = GetDefaultStartingDir(startingDir);
 
             if (string.IsNullOrEmpty(extension))
             {
@@ -89,6 +102,7 @@ namespace YARG.Helpers
             }
 
             _fileBrowser.gameObject.SetActive(true);
+            startingDir = GetDefaultStartingDir(startingDir);
 
             if (string.IsNullOrEmpty(extension))
             {
@@ -132,6 +146,13 @@ namespace YARG.Helpers
             Process.Start("open", $"\"{folderPath}\"");
 #elif UNITY_STANDALONE_LINUX
             Process.Start("xdg-open", folderPath);
+#elif UNITY_IOS
+            GUIUtility.systemCopyBuffer = folderPath;
+            Application.OpenURL("shareddocuments://" + folderPath);
+            DialogManager.Instance.ShowMessage(
+                "Manage Files in iOS Files App",
+                "Open the iOS <b>Files</b> app and navigate to <b>On My iPhone > YARG > Songs</b> to drop in song folders or .sng/.con files.\n\n" +
+                $"Path copied to clipboard:\n{folderPath}");
 #else
             GUIUtility.systemCopyBuffer = folderPath;
             DialogManager.Instance.ShowMessage(
@@ -149,6 +170,14 @@ namespace YARG.Helpers
             Process.Start("open", $"-R \"{filePath}\"");
 #elif UNITY_STANDALONE_LINUX
             Process.Start("xdg-open", Path.GetDirectoryName(filePath));
+#elif UNITY_IOS
+            GUIUtility.systemCopyBuffer = filePath;
+            var dir = Path.GetDirectoryName(filePath) ?? PathHelper.RealPersistentDataPath;
+            Application.OpenURL("shareddocuments://" + dir);
+            DialogManager.Instance.ShowMessage(
+                "Manage Files in iOS Files App",
+                "Open the iOS <b>Files</b> app and navigate to <b>On My iPhone > YARG</b>.\n\n" +
+                $"Path copied to clipboard:\n{filePath}");
 #else
             GUIUtility.systemCopyBuffer = filePath;
             DialogManager.Instance.ShowMessage(

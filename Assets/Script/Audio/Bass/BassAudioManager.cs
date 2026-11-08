@@ -103,9 +103,26 @@ namespace YARG.Audio.BASS
         {
             YargLogger.LogInfo("Initializing BASS...");
             string bassPath = GetBassDirectory();
-            string opusLibDirectory = Path.Combine(bassPath, "bassopus");
 
+#if !UNITY_EDITOR && UNITY_IOS
+            // Configure iOS audio session (BASS_CONFIG_IOS_SESSION = 46, BASS_IOS_SESSION_MIX = 1)
+            // Ensures audio plays through speakers even when hardware silent switch is on
+            Bass.Configure((Configuration) 46, 1);
+
+            string opusFrameworkPath = Path.Combine(bassPath, "bassopus.framework", "bassopus");
+            _opusHandle = Bass.PluginLoad(opusFrameworkPath);
+            if (_opusHandle == 0)
+            {
+                _opusHandle = Bass.PluginLoad(Path.Combine(bassPath, "libbassopus.dylib"));
+            }
+            if (_opusHandle == 0)
+            {
+                _opusHandle = Bass.PluginLoad("bassopus");
+            }
+#else
+            string opusLibDirectory = Path.Combine(bassPath, "bassopus");
             _opusHandle = Bass.PluginLoad(opusLibDirectory);
+#endif
             if (_opusHandle == 0) YargLogger.LogFormatError("Failed to load .opus plugin: {0}!", Bass.LastError);
 
             Bass.Configure(Configuration.IncludeDefaultDevice, true);
@@ -576,6 +593,10 @@ namespace YARG.Audio.BASS
         private static string GetBassDirectory()
         {
             string pluginDirectory = Path.Combine(Application.dataPath, "Plugins");
+
+#if !UNITY_EDITOR && UNITY_IOS
+            pluginDirectory = Path.Combine(Path.GetDirectoryName(Application.dataPath) ?? Application.dataPath, "Frameworks");
+#endif
 
             // Locate windows directory
             // Checks if running on 64 bit and sets the path accordingly

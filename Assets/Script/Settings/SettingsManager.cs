@@ -279,6 +279,23 @@ namespace YARG.Settings
             Settings ??= new SettingContainer();
             SettingContainer.IsInitialized = true;
 
+#if UNITY_IOS
+            if (Settings.SongFolders != null)
+            {
+                for (int i = 0; i < Settings.SongFolders.Count; i++)
+                {
+                    Settings.SongFolders[i] = PathHelper.RemapIosContainerPath(Settings.SongFolders[i]);
+                }
+
+                if (!string.IsNullOrEmpty(PathHelper.IosSongsPath) &&
+                    !Settings.SongFolders.Contains(PathHelper.IosSongsPath))
+                {
+                    Settings.SongFolders.Add(PathHelper.IosSongsPath);
+                    SaveSettings();
+                }
+            }
+#endif
+
             // Now that we're done loading, call all of the callbacks
             var fields = typeof(SettingContainer).GetProperties();
             foreach (var field in fields)

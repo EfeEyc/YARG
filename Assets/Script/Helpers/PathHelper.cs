@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
@@ -11,6 +11,7 @@ namespace YARG.Helpers
     public static class PathHelper
     {
         private static readonly Regex _fileNameSanitize = new("([^a-zA-Z0-9])", RegexOptions.Compiled);
+        private static readonly Regex _iosContainerRegex = new(@"^(/private)?/var/mobile/Containers/Data/Application/[0-9A-Fa-f\-]+/Documents", RegexOptions.Compiled);
 
         /// <summary>
         /// Where settings, scores, etc. should be stored.
@@ -21,6 +22,11 @@ namespace YARG.Helpers
         /// The root level of the persistent data path.
         /// </summary>
         public static string RealPersistentDataPath { get; private set; }
+
+        /// <summary>
+        /// Default Songs directory inside the iOS Files app ("On My iPhone > YARG > Songs").
+        /// </summary>
+        public static string IosSongsPath { get; private set; }
 
         /// <summary>
         /// The data folder in YARG's installation.
@@ -90,6 +96,29 @@ namespace YARG.Helpers
         {
             // Save this data as Application.* is main thread only (why Unity)
             RealPersistentDataPath = SanitizePath(Application.persistentDataPath);
+            IosSongsPath = SanitizePath(Path.Combine(RealPersistentDataPath, "Songs"));
+
+#if UNITY_IOS
+            try
+            {
+                Directory.CreateDirectory(IosSongsPath);
+                string readmePath = Path.Combine(IosSongsPath, "HOW_TO_IMPORT_SONGS.txt");
+                if (!File.Exists(readmePath))
+                {
+                    File.WriteAllText(readmePath,
+                        "YARG iOS - Importing Songs via Files App\n" +
+                        "========================================\n" +
+                        "Place your song folders, .sng files, or RB3CON files directly inside this 'Songs' folder\n" +
+                        "(On My iPhone > YARG > Songs in the iOS Files app).\n\n" +
+                        "Then open YARG -> Settings -> Song Manager -> Refresh Songs (or restart YARG) to scan them!\n");
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"Failed to initialize iOS Songs directory: {e}");
+            }
+#endif
+
 #if UNITY_EDITOR || YARG_TEST_BUILD
             PersistentDataPath = SanitizePath(Path.Combine(Application.persistentDataPath, "dev"));
 #elif YARG_NIGHTLY_BUILD
@@ -130,6 +159,8 @@ namespace YARG.Helpers
             // Thanks Apple
             var localAppdata = Path.Combine(Environment.GetEnvironmentVariable("HOME"),
                 "Library", "Application Support");
+#elif UNITY_IOS
+            var localAppdata = RealPersistentDataPath;
 #else
             var localAppdata = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
 #endif
@@ -138,6 +169,25 @@ namespace YARG.Helpers
             // Get official setlist path
             // (this is replaced by the launch argument if it is set)
             (SetlistPath, VenuePath) = FindLauncherPaths();
+        }
+
+        /// <summary>
+        /// On iOS, sideloading updates can change the app container UUID in /var/mobile/Containers/Data/Application/&lt;UUID&gt;/Documents.
+        /// This remaps any saved path inside an old container UUID to the current RealPersistentDataPath.
+        /// </summary>
+        public static string RemapIosContainerPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(RealPersistentDataPath))
+            {
+                return path;
+            }
+
+            if (_iosContainerRegex.IsMatch(path))
+            {
+                return SanitizePath(_iosContainerRegex.Replace(path, RealPersistentDataPath));
+            }
+
+            return path;
         }
 
         private static (string, string) FindLauncherPaths()

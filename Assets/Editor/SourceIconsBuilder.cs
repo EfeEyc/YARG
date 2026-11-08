@@ -16,6 +16,7 @@ namespace Editor
         public void OnPreprocessBuild(BuildReport report)
         {
             var sourcesFolder = Path.Combine(Application.streamingAssetsPath, "sources");
+            Directory.CreateDirectory(sourcesFolder);
 
             // Otherwise, update!
             try
@@ -66,8 +67,7 @@ namespace Editor
             }
             catch (Exception e)
             {
-                Debug.LogError("Failed to download newest song source version.");
-                Debug.LogException(e);
+                Debug.LogWarning("Failed to download newest song source version: " + e.Message);
             }
         }
     }
