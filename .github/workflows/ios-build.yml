@@ -27,7 +27,7 @@ jobs:
           lfs: true
           submodules: recursive
 
-      - name: "[Pre-install] Ensure YARG.Core iOS P/Invoke bindings"
+      - name: "[Pre-install] Ensure YARG.Core iOS P/Invoke bindings and IL2CPP compatibility"
         run: |
           python3 - << 'EOF'
           from pathlib import Path
@@ -46,6 +46,30 @@ jobs:
               text = text.replace('[DllImport("STB2CSharp", EntryPoint = "free_image")]', '[DllImport(StbDllName, EntryPoint = "free_image")]', 1)
               p.write_text(text, encoding="utf-8")
               print("Patched YARGImage.cs for iOS static linking (__Internal).")
+
+          # Patch SongEntry.Sorting.cs to replace raw function pointer array delegate*[] with managed delegates
+          p_sort = Path("YARG.Core/YARG.Core/Song/Entries/SongEntry.Sorting.cs")
+          s_text = p_sort.read_text(encoding="utf-8")
+          if "delegate*<SongCache" in s_text:
+              s_old = """        private static readonly unsafe delegate*<SongCache, Dictionary<SongEntry, CacheWriteIndices>, List<string>>[] COLLECTORS =
+          {
+              &CollectCacheTitles, &CollectCacheArtists,  &CollectCacheAlbums,    &CollectCacheGenres, &CollectCacheSubgenres,
+              &CollectCacheYears,  &CollectCacheCharters, &CollectCachePlaylists, &CollectCacheSources,
+          };"""
+              s_new = """        private delegate List<string> CollectorDelegate(SongCache cache, Dictionary<SongEntry, CacheWriteIndices> nodes);
+
+          private static readonly CollectorDelegate[] COLLECTORS =
+          {
+              CollectCacheTitles, CollectCacheArtists,  CollectCacheAlbums,    CollectCacheGenres, CollectCacheSubgenres,
+              CollectCacheYears,  CollectCacheCharters, CollectCachePlaylists, CollectCacheSources,
+          };"""
+              s_text = s_text.replace(s_old.replace("          ", "        "), s_new.replace("          ", "        "))
+              s_text = s_text.replace("""                unsafe
+                  {
+                      categories[i] = COLLECTORS[i](cache, nodes);
+                  }""".replace("                  ", "                "), "categories[i] = COLLECTORS[i](cache, nodes);")
+              p_sort.write_text(s_text, encoding="utf-8")
+              print("Patched SongEntry.Sorting.cs for IL2CPP compatibility.")
           EOF
 
       ###########################

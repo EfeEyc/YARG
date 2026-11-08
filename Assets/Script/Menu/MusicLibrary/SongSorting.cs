@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using YARG.Core;
 using YARG.Core.Extensions;
@@ -151,14 +151,16 @@ namespace YARG.Menu.MusicLibrary
             }
         }
 
-        private static readonly unsafe delegate*<SongCache, SortedSongs, void>[] SORTERS =
+        private delegate void SorterDelegate(SongCache cache, SortedSongs sorted);
+
+        private static readonly SorterDelegate[] SORTERS =
         {
-            &SortByTitle,    &SortByArtist,   &SortByAlbum,  &SortByGenre,       &SortBySubgenre,   &SortByYear,
-            &SortByCharter,  &SortByPlaylist, &SortBySource, &SortByArtistAlbum, &SortByLength,     &SortByDateAdded,
-            &SortByInstruments
+            SortByTitle,    SortByArtist,   SortByAlbum,  SortByGenre,       SortBySubgenre,   SortByYear,
+            SortByCharter,  SortByPlaylist, SortBySource, SortByArtistAlbum, SortByLength,     SortByDateAdded,
+            SortByInstruments
         };
 
-        internal static unsafe void SortEntries(SongCache cache, SortedSongs sorted)
+        internal static void SortEntries(SongCache cache, SortedSongs sorted)
         {
             sorted.Clear();
             Parallel.For(0, SORTERS.Length, i => SORTERS[i](cache, sorted));
