@@ -1,8 +1,89 @@
 #import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <ImageIO/ImageIO.h>
+#include <dlfcn.h>
 #include <stdlib.h>
 #include <string.h>
+
+static void YargSyncFullScreenWindowBounds(void)
+{
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIScreen* mainScreen = [UIScreen mainScreen];
+        CGRect screenBounds = mainScreen.bounds;
+
+        for (UIScene* scene in [UIApplication sharedApplication].connectedScenes)
+        {
+            if ([scene isKindOfClass:[UIWindowScene class]])
+            {
+                UIWindowScene* windowScene = (UIWindowScene*)scene;
+                CGRect sceneBounds = windowScene.screen.bounds;
+                for (UIWindow* window in windowScene.windows)
+                {
+                    if (!CGRectEqualToRect(window.frame, sceneBounds))
+                    {
+                        window.frame = sceneBounds;
+                    }
+                    window.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+                    if (window.rootViewController && window.rootViewController.view)
+                    {
+                        UIView* rootView = window.rootViewController.view;
+                        rootView.frame = window.bounds;
+                        rootView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+                        [rootView setNeedsLayout];
+                        [rootView layoutIfNeeded];
+                    }
+                }
+            }
+        }
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        for (UIWindow* window in [UIApplication sharedApplication].windows)
+        {
+            if (!CGRectEqualToRect(window.frame, screenBounds))
+            {
+                window.frame = screenBounds;
+            }
+            window.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        }
+#pragma clang diagnostic pop
+    });
+}
+
+__attribute__((constructor))
+static void YargIosPluginInit(void)
+{
+    const char* frameworks[] = { "bass", "bass_fx", "bassmix", "bassopus" };
+    NSString* fwDir = [[NSBundle mainBundle] privateFrameworksPath];
+
+    for (size_t i = 0; i < sizeof(frameworks) / sizeof(frameworks[0]); i++)
+    {
+        const char* name = frameworks[i];
+        char rpathBuf[256];
+        snprintf(rpathBuf, sizeof(rpathBuf), "@rpath/%s.framework/%s", name, name);
+        void* handle = dlopen(rpathBuf, RTLD_LAZY | RTLD_GLOBAL);
+        if (!handle && fwDir != nil)
+        {
+            NSString* fullPath = [NSString stringWithFormat:@"%@/%s.framework/%s", fwDir, name, name];
+            dlopen([fullPath UTF8String], RTLD_LAZY | RTLD_GLOBAL);
+        }
+    }
+
+    NSNotificationCenter* center = [NSNotificationCenter defaultCenter];
+    [center addObserverForName:UIApplicationDidBecomeActiveNotification
+                        object:nil
+                         queue:[NSOperationQueue mainQueue]
+                    usingBlock:^(__unused NSNotification* note) {
+                        YargSyncFullScreenWindowBounds();
+                    }];
+    [center addObserverForName:UIWindowDidBecomeKeyNotification
+                        object:nil
+                         queue:[NSOperationQueue mainQueue]
+                    usingBlock:^(__unused NSNotification* note) {
+                        YargSyncFullScreenWindowBounds();
+                    }];
+}
 
 #ifdef __cplusplus
 extern "C" {

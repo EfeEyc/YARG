@@ -105,15 +105,23 @@ namespace YARG.Audio.BASS
             string bassPath = GetBassDirectory();
 
 #if !UNITY_EDITOR && UNITY_IOS
-            // Configure iOS audio session (BASS_CONFIG_IOS_SESSION = 46, BASS_IOS_SESSION_MIX = 1)
+            // Configure iOS audio session (BASS_CONFIG_IOS_SESSION = 34 from bass.h, BASS_IOS_SESSION_MIX = 1)
             // Ensures audio plays through speakers even when hardware silent switch is on
-            Bass.Configure((Configuration) 46, 1);
+            Bass.Configure((Configuration) 34, 1);
 
             string opusFrameworkPath = Path.Combine(bassPath, "bassopus.framework", "bassopus");
             _opusHandle = Bass.PluginLoad(opusFrameworkPath);
             if (_opusHandle == 0)
             {
+                _opusHandle = Bass.PluginLoad("@rpath/bassopus.framework/bassopus");
+            }
+            if (_opusHandle == 0)
+            {
                 _opusHandle = Bass.PluginLoad(Path.Combine(bassPath, "libbassopus.dylib"));
+            }
+            if (_opusHandle == 0)
+            {
+                _opusHandle = Bass.PluginLoad("bassopus.framework/bassopus");
             }
             if (_opusHandle == 0)
             {
@@ -372,6 +380,9 @@ namespace YARG.Audio.BASS
         protected override OutputDevice? GetOutputDevice(string name)
 #nullable disable
         {
+            int fallbackDeviceIndex = -1;
+            string fallbackDeviceName = null;
+
             for (int deviceIndex = 0; Bass.GetDeviceInfo(deviceIndex, out var info); deviceIndex++)
             {
                 // Ignore disabled devices
@@ -386,13 +397,24 @@ namespace YARG.Audio.BASS
                     continue;
                 }
 
+                if (deviceIndex > 0 && fallbackDeviceIndex == -1)
+                {
+                    fallbackDeviceIndex = deviceIndex;
+                    fallbackDeviceName = info.Name;
+                }
+
                 // Ensure device names match
-                if (info.Name != name)
+                if (!string.Equals(info.Name, name, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
 
-                return CreateOutputDevice(deviceIndex, name);
+                return CreateOutputDevice(deviceIndex, info.Name);
+            }
+
+            if (fallbackDeviceIndex != -1 && fallbackDeviceName != null)
+            {
+                return CreateOutputDevice(fallbackDeviceIndex, fallbackDeviceName);
             }
 
             return null;

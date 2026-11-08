@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using DG.Tweening;
@@ -5,6 +6,7 @@ using DG.Tweening.Core;
 using DG.Tweening.Plugins.Options;
 using UnityEngine;
 using YARG.Core.Audio;
+using YARG.Core.Logging;
 using YARG.Playback;
 using YARG.Settings;
 
@@ -88,22 +90,31 @@ namespace YARG.Gameplay
 
         private void LoadAudio()
         {
-            _stemStates.Clear();
-            _mixer = Song.LoadAudio(GlobalVariables.State.SongSpeed, DEFAULT_VOLUME);
-            if (_mixer == null)
+            try
             {
+                _stemStates.Clear();
+                _mixer = Song.LoadAudio(GlobalVariables.State.SongSpeed, DEFAULT_VOLUME);
+                if (_mixer == null)
+                {
+                    _loadState = LoadFailureState.Error;
+                    _loadFailureMessage = "Failed to load audio!";
+                    return;
+                }
+
+                _backgroundStem = SongStem.Song;
+                foreach (var channel in _mixer.Channels)
+                {
+                    _stemStates.TryAdd(channel.Stem, new StemState(channel.Stem));
+                }
+
+                _backgroundStem = _stemStates.Count > 1 ? SongStem.Song : _stemStates.First().Key;
+            }
+            catch (Exception ex)
+            {
+                YargLogger.LogException(ex, "Failed to load song audio!");
                 _loadState = LoadFailureState.Error;
                 _loadFailureMessage = "Failed to load audio!";
-                return;
             }
-
-            _backgroundStem = SongStem.Song;
-            foreach (var channel in _mixer.Channels)
-            {
-                _stemStates.TryAdd(channel.Stem, new StemState(channel.Stem));
-            }
-
-            _backgroundStem = _stemStates.Count > 1 ? SongStem.Song : _stemStates.First().Key;
         }
 
         public void ChangeStarPowerStatus(bool active)

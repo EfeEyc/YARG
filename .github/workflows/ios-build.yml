@@ -115,7 +115,8 @@ jobs:
       - name: "[Pre-install] Download Un4seen BASS iOS XCFrameworks"
         run: |
           BASS_DIR="${{ runner.temp }}/bass-ios"
-          mkdir -p "$BASS_DIR/frameworks"
+          rm -rf "$BASS_DIR" /tmp/bass-ios
+          mkdir -p "$BASS_DIR/frameworks" /tmp/bass-ios/frameworks
           cd "$BASS_DIR"
 
           curl -fL -A "Mozilla/5.0" -o bass24-ios.zip "https://www.un4seen.com/files/bass24-ios.zip"
@@ -127,12 +128,24 @@ jobs:
             unzip -q -o "$zip" -d extracted
           done
 
-          # Extract the physical iOS device (arm64) framework slices (excluding simulator slices)
-          for fw in bass.framework bass_fx.framework bassmix.framework bassopus.framework; do
+          # Extract physical iOS device (arm64) framework slices, strip legacy 32-bit armv7/armv7s slices,
+          # set executable permissions (0755), and stamp modern iOS 27.1 SDK build version
+          for name in bass bass_fx bassmix bassopus; do
+            fw="${name}.framework"
             SLICE=$(find extracted -type d -path "*ios-arm64*/$fw" ! -path "*simulator*" | head -n 1)
             if [ -n "$SLICE" ]; then
               cp -R "$SLICE" "$BASS_DIR/frameworks/$fw"
-              echo "Prepared $fw from $SLICE"
+              BIN="$BASS_DIR/frameworks/$fw/$name"
+              if ! lipo -info "$BIN" | grep -q "Non-fat"; then
+                lipo -thin arm64 "$BIN" -output "${BIN}.arm64"
+                mv "${BIN}.arm64" "$BIN"
+              fi
+              chmod 755 "$BIN"
+              xcrun vtool -set-build-version ios 15.0 27.1 -replace -output "$BIN" "$BIN" || true
+              /usr/libexec/PlistBuddy -c "Set :MinimumOSVersion 15.0" "$BASS_DIR/frameworks/$fw/Info.plist" 2>/dev/null || true
+              cp -R "$BASS_DIR/frameworks/$fw" "/tmp/bass-ios/frameworks/$fw"
+              echo "Prepared arm64 framework $fw from $SLICE"
+              lipo -info "$BIN"
             else
               echo "Warning: Could not locate device slice for $fw"
             fi
@@ -177,6 +190,13 @@ jobs:
         run: |
           set -euo pipefail
 
+          LATEST_XCODE=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -n 1 || true)
+          if [ -n "$LATEST_XCODE" ]; then
+            echo "Selecting newest installed Xcode: $LATEST_XCODE"
+            sudo xcode-select -s "$LATEST_XCODE" || true
+          fi
+          xcodebuild -version
+
           XCODE_PROJ=$(find build -name "Unity-iPhone.xcodeproj" -maxdepth 4 | head -n 1)
           if [ -z "$XCODE_PROJ" ] || [ ! -d "$XCODE_PROJ" ]; then
             echo "Error: Xcode project not found under build/"
@@ -208,29 +228,55 @@ jobs:
           echo "Found built app bundle at: $APP_PATH"
           mkdir -p "$APP_PATH/Frameworks"
 
-          # Embed BASS iOS frameworks and create dylib symlinks for P/Invoke + PluginLoad compatibility
+          # Embed clean arm64 BASS iOS frameworks (no loose symlink files so on-device re-signing succeeds cleanly)
           BASS_FW_DIR="${{ runner.temp }}/bass-ios/frameworks"
           for name in bass bass_fx bassmix bassopus; do
             if [ -d "$BASS_FW_DIR/${name}.framework" ]; then
+              rm -rf "$APP_PATH/Frameworks/${name}.framework" "$APP_PATH/Frameworks/${name}" "$APP_PATH/Frameworks/lib${name}.dylib"
               cp -R "$BASS_FW_DIR/${name}.framework" "$APP_PATH/Frameworks/"
-              ln -sf "${name}.framework/${name}" "$APP_PATH/Frameworks/lib${name}.dylib"
-              ln -sf "${name}.framework/${name}" "$APP_PATH/Frameworks/${name}"
-              codesign --force --sign - --timestamp=none "$APP_PATH/Frameworks/${name}.framework"
+              chmod 755 "$APP_PATH/Frameworks/${name}.framework/${name}"
+              xcrun vtool -set-build-version ios 15.0 27.1 -replace \
+                -output "$APP_PATH/Frameworks/${name}.framework/${name}" \
+                "$APP_PATH/Frameworks/${name}.framework/${name}" || true
             fi
           done
 
-          # Ad-hoc sign all embedded frameworks and the main app bundle for AltStore / SideStore / TrollStore / Feather
-          find "$APP_PATH/Frameworks" -name "*.framework" -o -name "*.dylib" | while read -r item; do
-            codesign --force --sign - --timestamp=none "$item" || true
+          # Stamp main executable and UnityFramework with iOS 27.1 SDK in Mach-O LC_BUILD_VERSION
+          if [ -f "$APP_PATH/YARG" ]; then
+            chmod 755 "$APP_PATH/YARG"
+            xcrun vtool -set-build-version ios 15.0 27.1 -replace -output "$APP_PATH/YARG" "$APP_PATH/YARG" || true
+          fi
+          if [ -f "$APP_PATH/Frameworks/UnityFramework.framework/UnityFramework" ]; then
+            chmod 755 "$APP_PATH/Frameworks/UnityFramework.framework/UnityFramework"
+            xcrun vtool -set-build-version ios 15.0 27.1 -replace \
+              -output "$APP_PATH/Frameworks/UnityFramework.framework/UnityFramework" \
+              "$APP_PATH/Frameworks/UnityFramework.framework/UnityFramework" || true
+          fi
+
+          # Ensure Info.plist metadata declares iOS 27.1 SDK and full dynamic screen resizing (no 16:9 compatibility box)
+          PLIST="$APP_PATH/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :UIRequiresFullScreen false" "$PLIST" 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c "Add :UIRequiresFullScreen bool false" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :UIRequiresFullScreenIgnoredStartingWithVersion 26.0" "$PLIST" 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c "Add :UIRequiresFullScreenIgnoredStartingWithVersion string 26.0" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Delete :UILaunchStoryboardName~iphone" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Delete :UILaunchStoryboardName~ipod" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Set :UILaunchStoryboardName LaunchScreen-iPad" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Set :DTSDKName iphoneos27.1" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Set :DTPlatformVersion 27.1" "$PLIST" 2>/dev/null || true
+
+          # Ad-hoc sign all embedded frameworks and the main app bundle
+          find "$APP_PATH/Frameworks" -maxdepth 1 -name "*.framework" | while read -r item; do
+            codesign --force --sign - --timestamp=none "$item"
           done
           codesign --force --sign - --timestamp=none "$APP_PATH"
 
-          # Package into .ipa
+          # Package into .ipa preserving bundle permissions and structure
           rm -rf build/ipa
           mkdir -p build/ipa/Payload
-          cp -R "$APP_PATH" build/ipa/Payload/YARG.app
+          cp -Rp "$APP_PATH" build/ipa/Payload/YARG.app
           cd build/ipa
-          zip -r -9 "${GITHUB_WORKSPACE}/YARG-iOS.ipa" Payload
+          zip -r -y -9 "${GITHUB_WORKSPACE}/YARG-iOS.ipa" Payload
 
       - name: "[Post-build] Upload .ipa Artifact"
         uses: actions/upload-artifact@v4

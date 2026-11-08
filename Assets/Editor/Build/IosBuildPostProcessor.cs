@@ -37,18 +37,26 @@ namespace Editor.Build
             root.SetBoolean("LSSupportsOpeningDocumentsInPlace", true);
             root.SetBoolean("UISupportsDocumentBrowser", false);
 
-            // Force full-screen edge-to-edge rendering
-            root.SetBoolean("UIRequiresFullScreen", true);
+            // Disable legacy fixed-size fullscreen requirement so iOS renders natively across full dynamic/foldable screen bounds
+            root.SetBoolean("UIRequiresFullScreen", false);
+            root.SetString("UIRequiresFullScreenIgnoredStartingWithVersion", "26.0");
             root.SetBoolean("UIStatusBarHidden", true);
             root.SetBoolean("UIViewControllerBasedStatusBarAppearance", false);
 
             // Enable 120Hz ProMotion frame rates on iOS
             root.SetBoolean("CADisableMinimumFrameDurationOnPhone", true);
 
-            // Ensure modern launch screen dictionary exists so iOS never falls back to 16:9 letterboxed compatibility mode
+            // Ensure modern launch screen dictionary exists and remove compact-phone-restricted launch storyboard overrides
+            // so iOS never falls back to 16:9 letterboxed compatibility mode on wider aspect ratios
             if (!root.values.ContainsKey("UILaunchScreen"))
             {
                 root.CreateDict("UILaunchScreen");
+            }
+            root.values.Remove("UILaunchStoryboardName~iphone");
+            root.values.Remove("UILaunchStoryboardName~ipod");
+            if (root.values.ContainsKey("UILaunchStoryboardName~ipad"))
+            {
+                root.SetString("UILaunchStoryboardName", "LaunchScreen-iPad");
             }
 
             // Permissions for Vocals microphone and Bluetooth controllers/instruments
@@ -120,6 +128,15 @@ namespace Editor.Build
 
                 proj.AddBuildProperty(frameworkTarget, "OTHER_LDFLAGS", "-lsqlite3");
                 proj.AddBuildProperty(frameworkTarget, "OTHER_LDFLAGS", "-lz");
+
+                if (Directory.Exists("/tmp/bass-ios/frameworks"))
+                {
+                    proj.AddBuildProperty(frameworkTarget, "FRAMEWORK_SEARCH_PATHS", "/tmp/bass-ios/frameworks");
+                    proj.AddBuildProperty(frameworkTarget, "OTHER_LDFLAGS", "-framework bass");
+                    proj.AddBuildProperty(frameworkTarget, "OTHER_LDFLAGS", "-framework bass_fx");
+                    proj.AddBuildProperty(frameworkTarget, "OTHER_LDFLAGS", "-framework bassmix");
+                    proj.AddBuildProperty(frameworkTarget, "OTHER_LDFLAGS", "-framework bassopus");
+                }
 
                 // Ensure desktop dynamic libraries are not linked into the iOS build
                 string stbDylibGuid = proj.FindFileGuidByProjectPath("Libraries/Plugins/STB2CSharp/MacOS/STB2CSharp.dylib");

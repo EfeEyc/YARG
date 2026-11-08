@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using UnityEngine;
@@ -85,13 +85,20 @@ namespace YARG
             int savedCount = PlayerContainer.SaveProfiles(false);
             YargLogger.LogFormatInfo("Saved {0} profiles", savedCount);
 
-            GlobalAudioHandler.Initialize<BassAudioManager>();
-
             Players = new List<YargPlayer>();
 
             // Set alpha fading (on the tracks) to on
             // (this is mostly for the editor, but just in case)
             Shader.SetGlobalFloat("_IsFading", 1f);
+
+            try
+            {
+                GlobalAudioHandler.Initialize<BassAudioManager>();
+            }
+            catch (Exception ex)
+            {
+                YargLogger.LogException(ex, "Failed to initialize audio manager!");
+            }
         }
 
         private void Start()

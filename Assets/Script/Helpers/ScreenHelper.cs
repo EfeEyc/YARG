@@ -72,9 +72,14 @@ namespace YARG.Helpers
         /// </summary>
         public static void SetResolution(Resolution resolution)
         {
+#if UNITY_IOS && !UNITY_EDITOR
+            // On iOS, let UIKit and Metal manage the native viewport bounds dynamically
+            return;
+#else
             YargLogger.LogFormatDebug("Changing screen resolution to {0}", resolution);
             var fullscreenMode = SettingsManager.Settings?.FullscreenMode.Value ?? FullScreenMode.FullScreenWindow;
             Screen.SetResolution(resolution.width, resolution.height, fullscreenMode, resolution.refreshRateRatio);
+#endif
         }
     }
 }
