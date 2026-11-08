@@ -213,9 +213,9 @@ namespace YARG.Gameplay
             }
         }
 
-        protected override void OnDestroy()
+        protected override void GameplayDestroy()
         {
-            base.OnDestroy();
+            base.GameplayDestroy();
             AdaptiveDisplayManager.OnDisplayModeChanged -= OnDisplayModeChanged;
         }
 
