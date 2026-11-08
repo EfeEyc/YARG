@@ -142,6 +142,8 @@ jobs:
         with:
           buildName: YARG
           targetPlatform: iOS
+          allowDirtyBuild: true
+          versioning: None
           cacheUnityInstallationOnMac: true
 
       ###########################
