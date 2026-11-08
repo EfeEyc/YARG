@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
 using ManagedBass;
 using ManagedBass.Fx;
 using ManagedBass.Mix;
@@ -99,12 +100,26 @@ namespace YARG.Audio.BASS
         private readonly int _opusHandle = 0;
         private BassOutputDevice _currentDevice;
 
+#if !UNITY_EDITOR && UNITY_IOS
+        [DllImport("__Internal")]
+        private static extern void yarg_ios_preload_bass();
+#endif
+
         public BassAudioManager()
         {
             YargLogger.LogInfo("Initializing BASS...");
             string bassPath = GetBassDirectory();
 
 #if !UNITY_EDITOR && UNITY_IOS
+            try
+            {
+                yarg_ios_preload_bass();
+            }
+            catch (Exception ex)
+            {
+                YargLogger.LogException(ex, "Failed to preload iOS BASS frameworks");
+            }
+
             // Configure iOS audio session (BASS_CONFIG_IOS_SESSION = 34 from bass.h, BASS_IOS_SESSION_MIX = 1)
             // Ensures audio plays through speakers even when hardware silent switch is on
             Bass.Configure((Configuration) 34, 1);
