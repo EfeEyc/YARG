@@ -191,18 +191,25 @@ jobs:
           };
 
           string packagesRoot = Path.Combine(Directory.GetCurrentDirectory(), "Assets", "Packages");
+          var resolver = new DefaultAssemblyResolver();
+          foreach (string dir in Directory.GetDirectories(packagesRoot, "*", SearchOption.AllDirectories))
+          {
+              resolver.AddSearchDirectory(dir);
+          }
+          var readerParams = new ReaderParameters { AssemblyResolver = resolver };
+
           foreach (string dllPath in Directory.GetFiles(packagesRoot, "ManagedBass*.dll", SearchOption.AllDirectories))
           {
               byte[] bytes = File.ReadAllBytes(dllPath);
               using var ms = new MemoryStream(bytes);
-              using var asm = AssemblyDefinition.ReadAssembly(ms);
+              using var asm = AssemblyDefinition.ReadAssembly(ms, readerParams);
               bool modified = false;
 
               foreach (var mod in asm.Modules)
               {
                   foreach (var modRef in mod.ModuleReferences)
                   {
-                      if (map.TryGetValue(modRef.Name, out string newName))
+                      if (modRef.Name != null && map.TryGetValue(modRef.Name, out string? newName) && newName != null)
                       {
                           Console.WriteLine($"[{Path.GetFileName(dllPath)}] ModuleRef '{modRef.Name}' -> '{newName}'");
                           modRef.Name = newName;
